@@ -175,3 +175,33 @@ Evidence is `.local/native-check/1794156937630873426/`. This demonstrates the
 removed duration limit in a nested session, not physical long-session acceptance
 of the new defaults. The current production compositor remains the earlier
 binary until the user saves work and logs in again.
+
+## Origin-facing panels and spatial frame controls
+
+The requested controls are implemented in labwc and the native presenter with
+private protocol version 2. Elevated panels now tilt toward the fixed viewer
+origin as well as facing inward horizontally. Shared plane math handles separate
+horizontal/vertical physical scales, capture offsets and full 3D picking.
+
+Each captured surface group has an outer spatial title bar and resize frame.
+Dragging the bar moves the root group along the cylinder; wheel movement during
+that grab changes radial distance, retaining the held point on the mouse ray.
+Edges change one physical span, corners change both about the centre. Original
+desktop rectangles and client resolution are retained. Transients move with the
+root and can have their own size. Poses persist within the current compositor.
+The outer frame bounds include popup/subsurface extensions and shadows, keeping
+controls outside captured application input. Consumed buttons/wheel events are
+not sent to clients, and an owned release is swallowed after cancellation,
+target destruction or force-desktop recovery.
+
+The full NVIDIA GLES run `.local/native-check/1794159295104007535/` and Vulkan run
+`.local/native-check/1794159316509777732/` passed edge/corner resize, translation,
+both depth directions, head-only independence while held, unchanged desktop
+rectangles, forced-exit release handling, and destruction of a held second view
+while the original editor survived. Existing input, animation, fractional scale,
+modal, lock, stale-feed, reference-reset, frozen-helper and output-disconnect
+regressions also passed. The geometry test includes elevated/depth-shifted planes,
+unequal scales, frame bounds with negative popup origins and off-centre depth
+grabs. Feature-enabled and feature-disabled labwc builds pass without warnings.
+Physical use of these new controls still requires the new compositor login;
+nested results do not establish optical usability or physical acceptance.

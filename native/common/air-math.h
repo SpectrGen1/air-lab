@@ -23,16 +23,26 @@ static inline struct air_vec aray(double theta, double h) {
     struct air_vec d = av(AIR_RADIUS * sin(theta), h, AIR_RADIUS * cos(theta));
     return ascale(d, 1 / sqrt(adot(d, d)));
 }
+static inline struct air_vec acentre(const struct air_panel *p) {
+    double s = sin(p->azimuth), c = cos(p->azimuth);
+    double distance = p->distance > 0 ? p->distance : AIR_RADIUS;
+    return av(distance * s + p->tangent * c, p->elevation, distance * c - p->tangent * s);
+}
 static inline struct air_vec anormal(const struct air_panel *p) {
-    return av(sin(p->azimuth), 0, cos(p->azimuth));
+    struct air_vec c = acentre(p);
+    return ascale(c, 1 / sqrt(adot(c, c)));
 }
 static inline struct air_vec aright(const struct air_panel *p) {
-    return av(cos(p->azimuth), 0, -sin(p->azimuth));
+    struct air_vec n = anormal(p);
+    double h = hypot(n.x, n.z);
+    return av(n.z / h, 0, -n.x / h);
 }
-static inline struct air_vec acentre(const struct air_panel *p) {
-    return aadd(aadd(ascale(anormal(p), p->distance > 0 ? p->distance : AIR_RADIUS),
-                     ascale(aright(p), p->tangent)),
-                av(0, p->elevation, 0));
+static inline struct air_vec aup(const struct air_panel *p) {
+    struct air_vec n = anormal(p), r = aright(p);
+    return av(n.y * r.z, n.z * r.x - n.x * r.z, -n.y * r.x);
+}
+static inline double apixel_y(const struct air_panel *p) {
+    return p->metres_per_pixel_y > 0 ? p->metres_per_pixel_y : p->metres_per_pixel;
 }
 static inline bool aplane(const struct air_panel *p, struct air_vec d, double *x, double *y,
                           double *distance) {
@@ -44,13 +54,74 @@ static inline bool aplane(const struct air_panel *p, struct air_vec d, double *x
         return false;
     struct air_vec q = aadd(ascale(d, t), ascale(acentre(p), -1));
     *x = p->width * .5 + adot(q, aright(p)) / p->metres_per_pixel;
-    *y = p->height * .5 - q.y / p->metres_per_pixel;
+    *y = p->height * .5 - adot(q, aup(p)) / apixel_y(p);
     *distance = t;
     return true;
 }
 static inline struct air_vec apoint(const struct air_panel *p, double x, double y) {
     return aadd(acentre(p), aadd(ascale(aright(p), (x - p->width * .5) * p->metres_per_pixel),
-                                 av(0, (p->height * .5 - y) * p->metres_per_pixel, 0)));
+                                 ascale(aup(p), (p->height * .5 - y) * apixel_y(p))));
+}
+/* Keep spatial chrome outside the complete capture group, including CSD
+ * shadows and popup/subsurface extensions, so controls never steal their input. */
+static inline void aframe_bounds(const struct air_panel *p, double *left, double *top,
+                                 double *right, double *bottom) {
+    *left = fmin(0, p->bx);
+    *top = fmin(0, p->by);
+    *right = fmax(p->width, p->bx + p->bw);
+    *bottom = fmax(p->height, p->by + p->bh);
+}
+static inline uint32_t aframe_region(const struct air_panel *p, double x, double y) {
+    double left, top, right, bottom;
+    aframe_bounds(p, &left, &top, &right, &bottom);
+    x -= left;
+    y -= top;
+    double width = right - left, height = bottom - top;
+    double b = AIR_FRAME_BORDER, title = AIR_FRAME_TITLE;
+    if (x < -b || x > width + b || y < -title - b || y > height + b ||
+        (x >= 0 && x < width && y >= 0 && y < height))
+        return 0;
+    uint32_t edges = (x < 0        ? AIR_EDGE_LEFT
+                      : x >= width ? AIR_EDGE_RIGHT
+                                   : 0) |
+                     (y < -title    ? AIR_EDGE_TOP
+                      : y >= height ? AIR_EDGE_BOTTOM
+                                    : 0);
+    if (y < -title || y >= height) {
+        if (x < b)
+            edges |= AIR_EDGE_LEFT;
+        if (x > width - b)
+            edges |= AIR_EDGE_RIGHT;
+    }
+    return edges ? edges : AIR_TITLE;
+}
+static inline double aresize_span(double span, double delta, int direction) {
+    return aclamp(span + 2 * direction * delta, .12, 3.5);
+}
+/* Keep the held point on the mouse ray while a radial panel moves or changes
+ * depth. Solve its vertical slope first, then its azimuth; no head pose enters. */
+static inline bool agrab_position(double x, double y, double radius, double theta,
+                                  double pointer_height, double *angle, double *height) {
+    double h = *height, slope = pointer_height / AIR_RADIUS;
+    for (int i = 0; i < 20; i++) {
+        double len = hypot(radius, h), radial = radius - y * h / len;
+        double f = h + y * radius / len - slope * hypot(radial, x);
+        if (fabs(f) < 1e-7) {
+            *height = h;
+            *angle = awrap(theta - atan2(x, radial));
+            return true;
+        }
+        double h2 = h + .0001, len2 = hypot(radius, h2);
+        double f2 = h2 + y * radius / len2 - slope * hypot(radius - y * h2 / len2, x);
+        double derivative = (f2 - f) / .0001;
+        if (fabs(derivative) < 1e-5)
+            break;
+        double next = aclamp(h - aclamp(f / derivative, -.4, .4), -3, 3);
+        if (fabs(next - h) < 1e-9)
+            break;
+        h = next;
+    }
+    return false; /* Retain the last stable panel at unreachable limits. */
 }
 static inline void abasis(double yaw, double pitch, double roll, double out[9]) {
     struct air_vec f = av(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch));
@@ -70,13 +141,12 @@ static inline struct air_vec abaxis(const double b[9], int i) {
 /* Both rendering and compositor picking consume this same camera basis. A
  * desktop-level horizon is deliberate; full physical roll remains opt-in. */
 static inline void arelative_basis(const double raw[9], const double zero[9], bool head_roll,
-                                  double out[9]) {
+                                   double out[9]) {
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
             out[i * 3 + j] = adot(abaxis(raw, i), abaxis(zero, j));
     if (!head_roll) {
-        double yaw = hypot(out[6], out[8]) > 1e-6 ? atan2(out[6], out[8])
-                                                : atan2(-out[2], out[0]);
+        double yaw = hypot(out[6], out[8]) > 1e-6 ? atan2(out[6], out[8]) : atan2(-out[2], out[0]);
         double pitch = atan2(out[7], hypot(out[6], out[8]));
         abasis(yaw, pitch, 0, out);
     }

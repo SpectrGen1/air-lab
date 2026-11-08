@@ -72,6 +72,37 @@ direction. Turn toward its position or use Super+Alt+Left/Right to move it.
 Face forward and use Super+Alt+R if the neutral view was set while the Air rested
 on the table. A panel locator remains a usability improvement to implement.
 
+## Spatial window controls
+
+After confirming spatial mode with Super+Alt+Return, use the new outer spatial
+frame, which sits outside the captured application (including its shadows and
+popup extensions). It is separate from any title bar drawn by the application.
+
+- Left-drag the spatial title bar to translate around and up/down the cylinder.
+- While holding that bar, scroll up to move closer and down to move farther
+  away. The held point stays on the mouse ray; physical panel size is unchanged
+  by depth changes. Radial distance is limited to 0.45–4 metres.
+- Drag an outer edge to change physical width or height, or a corner to change
+  both. Resize is about the panel centre, with each content span limited to
+  0.12–3.5 metres. Client pixels and the original desktop rectangle are retained;
+  this scales the spatial presentation rather than reflowing the application.
+- Release the left button to finish. Super+Alt+Escape restores the desktop even
+  during a held drag. A removed target cancels the grab and consumes its eventual
+  release, so another application never receives an unmatched button-up.
+
+Every panel faces the fixed viewer origin in full 3D, including elevated panels.
+Mouse motion controls the grab; head motion only changes the viewpoint. Moving
+or changing the depth of a transient dialog's title bar moves its root group;
+resizing a dialog changes its own physical spans. Poses persist per window and
+workspace across spatial toggles for this compositor's lifetime. New logins or
+recreated application windows receive new poses.
+
+The frame highlights on hover and uses move/resize cursors. These controls are
+compositor-owned; their mouse buttons and wheel events are not sent to the
+application. Ordinary client clicks, selection and scrolling still use the seat.
+This changes the compositor and private protocol (version 2), so install the
+matching compositor/presenter and log in again; do not hot-swap only the renderer.
+
 The configured connector is DP-4, but the compositor verifies the Air display
 identity and USB `3318:0424`, and can find the same Air after connector renaming.
 It refuses a non-extended/overlapping physical layout. Wayland-backend outputs
@@ -146,7 +177,8 @@ Mono presentation is implemented. Stereo/eye calibration and OpenXR/DRM leasing
 are separate milestones and are not enabled.
 
 Normal client clicks, typing, scrolling, XDG popups, transient dialogs and text
-selection work through the existing seat. Server-side decoration capture/input,
+selection work through the existing seat. The spatial frame above implements
+physical move/resize/depth controls. Original desktop server-side decoration capture/input,
 spatial drag-and-drop, pointer lock/confine, tablet/absolute input and compositor
 move/resize gestures are not complete native features. Move/resize requests,
 DnD and pointer constraints explicitly return to the desktop; repeat that gesture

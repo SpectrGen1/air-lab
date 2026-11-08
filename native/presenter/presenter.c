@@ -38,6 +38,9 @@ struct capture {
     bool format_ok, constraints, released, ready, dirty, closed, wanted;
     char identifier[128];
     GLuint texture;
+    GLuint title_texture;
+    char title_cache[128];
+    int title_width;
     struct capture *next;
 };
 struct output {
@@ -79,10 +82,12 @@ struct app {
     uint64_t pose_stamp, last_frame, last_pose_report;
     double raw[9], zero[9], basis[9];
     struct air_vec pointer;
+    uint64_t hover_id;
+    uint32_t hover_region;
     bool hit;
     char status[192];
     bool hud_dirty;
-    GLuint hud, cursor;
+    GLuint hud, cursor, frame_texture, frame_hover_texture;
     int cursor_w, cursor_h, cursor_x, cursor_y;
     float cursor_scale;
     EGLDisplay egl;
@@ -602,6 +607,49 @@ static void draw_quad(struct app *a, GLuint tex, const struct air_vec q[4], uint
     glVertexAttribPointer(a->attr_uv, 2, GL_FLOAT, GL_FALSE, 0, uv);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
+static void frame_rect(struct app *a, GLuint texture_id, const struct air_panel *p, double x,
+                       double y, double width, double height) {
+    struct air_vec corners[4] = {apoint(p, x, y), apoint(p, x + width, y), apoint(p, x, y + height),
+                                 apoint(p, x + width, y + height)};
+    draw_quad(a, texture_id, corners, 0);
+}
+static void draw_frame(struct app *a, struct capture *c, const struct air_panel *p) {
+    if (!a->frame_texture) {
+        const unsigned char dark[4] = {30, 62, 75, 255}, bright[4] = {92, 221, 195, 255};
+        texture(&a->frame_texture, dark, 1, 1, 4, WL_SHM_FORMAT_ABGR8888);
+        texture(&a->frame_hover_texture, bright, 1, 1, 4, WL_SHM_FORMAT_ABGR8888);
+    }
+    double left, top, right, bottom;
+    aframe_bounds(p, &left, &top, &right, &bottom);
+    int width = (int)(right - left) + 2 * AIR_FRAME_BORDER;
+    if (!c->title_texture || strcmp(c->title_cache, p->title) || c->title_width != width) {
+        cairo_surface_t *surface =
+            cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, AIR_FRAME_TITLE);
+        cairo_t *cr = cairo_create(surface);
+        cairo_set_source_rgb(cr, .10, .17, .21);
+        cairo_paint(cr);
+        cairo_select_font_face(cr, "sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 22);
+        cairo_set_source_rgb(cr, .85, .96, .95);
+        cairo_move_to(cr, 20, 28);
+        cairo_show_text(cr, p->title);
+        cairo_surface_flush(surface);
+        texture(&c->title_texture, cairo_image_surface_get_data(surface), width, AIR_FRAME_TITLE,
+                cairo_image_surface_get_stride(surface), WL_SHM_FORMAT_ARGB8888);
+        cairo_destroy(cr);
+        cairo_surface_destroy(surface);
+        snprintf(c->title_cache, sizeof(c->title_cache), "%s", p->title);
+        c->title_width = width;
+    }
+    double b = AIR_FRAME_BORDER, title = AIR_FRAME_TITLE;
+    GLuint border =
+        a->hover_id == p->id && a->hover_region ? a->frame_hover_texture : a->frame_texture;
+    frame_rect(a, border, p, left - b, top - title - b, width, b);
+    frame_rect(a, border, p, left - b, bottom, width, b);
+    frame_rect(a, border, p, left - b, top - title, b, bottom - top + title);
+    frame_rect(a, border, p, right, top - title, b, bottom - top + title);
+    frame_rect(a, c->title_texture, p, left - b, top - title, width, title);
+}
 static void update_hud(struct app *a) {
     cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1600, 64);
     cairo_t *cr = cairo_create(surface);
@@ -646,6 +694,7 @@ static void draw(struct app *a) {
             healthy = false;
             continue;
         }
+        draw_frame(a, c, p);
         c->wanted = true;
         start_capture(c);
         if (c->dirty) {
@@ -720,8 +769,8 @@ static void update_basis(struct app *a) {
         memcpy(a->zero, a->raw, sizeof(a->zero));
         a->zero_valid = true;
     }
-    bool head_roll = getenv("AIR_SPATIAL_HEAD_ROLL") &&
-                     !strcmp(getenv("AIR_SPATIAL_HEAD_ROLL"), "1");
+    bool head_roll =
+        getenv("AIR_SPATIAL_HEAD_ROLL") && !strcmp(getenv("AIR_SPATIAL_HEAD_ROLL"), "1");
     arelative_basis(a->raw, a->zero, head_roll, a->basis);
 }
 static void receive_pose(struct app *a) {
@@ -807,6 +856,7 @@ static void receive_ipc(struct app *a) {
                 a->running = false;
             } else {
                 m.data.panel.identifier[127] = 0;
+                m.data.panel.title[127] = 0;
                 a->panels[a->count++] = m.data.panel;
             }
         } else if (m.type == AIR_SCENE_COMMIT && m.epoch == a->epoch)
@@ -815,6 +865,8 @@ static void receive_ipc(struct app *a) {
             a->pointer = av(m.data.pointer.xyz[0], m.data.pointer.xyz[1], m.data.pointer.xyz[2]);
             a->hit = m.data.pointer.hit;
             a->active = m.data.pointer.active;
+            a->hover_id = m.data.pointer.view_id;
+            a->hover_region = m.data.pointer.region;
         } else if (m.type == AIR_STATUS) {
             m.data.text[191] = 0;
             snprintf(a->status, sizeof(a->status), "%s", m.data.text);

@@ -29,6 +29,9 @@ bool air_spatial_context(struct cursor_context *ctx);
 bool air_spatial_motion(double dx, double dy);
 bool air_spatial_key(struct wlr_keyboard *kb, struct wlr_keyboard_key_event *ev);
 bool air_spatial_press_allowed(void);
+bool air_spatial_button(uint32_t button, bool pressed);
+bool air_spatial_axis(uint32_t orientation, double delta);
+bool air_spatial_manipulating(void);
 bool air_spatial_layer(struct wlr_layer_surface_v1 *layer);
 bool air_spatial_cursor(struct wlr_surface *surface, int hx, int hy);
 bool air_spatial_cursor_name(const char *name);
@@ -65,6 +68,17 @@ static inline bool air_spatial_key(struct wlr_keyboard *k, struct wlr_keyboard_k
     return false;
 }
 static inline bool air_spatial_press_allowed(void) { return true; }
+static inline bool air_spatial_button(uint32_t button, bool pressed) {
+    (void)button;
+    (void)pressed;
+    return false;
+}
+static inline bool air_spatial_axis(uint32_t orientation, double delta) {
+    (void)orientation;
+    (void)delta;
+    return false;
+}
+static inline bool air_spatial_manipulating(void) { return false; }
 static inline bool air_spatial_layer(struct wlr_layer_surface_v1 *l) {
     (void)l;
     return true;

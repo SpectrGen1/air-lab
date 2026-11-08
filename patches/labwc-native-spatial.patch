@@ -63,7 +63,7 @@ index 5d7d050..7071a66 100644
  	if (wlr_seat_validate_pointer_grab_serial(
  			seat->wlr_seat, event->origin, event->serial)) {
 diff --git a/src/input/cursor.c b/src/input/cursor.c
-index 5a169bd..7118a30 100644
+index 5a169bd..c6e95a3 100644
 --- a/src/input/cursor.c
 +++ b/src/input/cursor.c
 @@ -1,5 +1,6 @@
@@ -132,7 +132,7 @@ index 5a169bd..7118a30 100644
  	struct seat *seat = &server.seat;
  	if (seat->current_constraint == constraint) {
  		return;
-@@ -922,7 +934,9 @@ preprocess_cursor_motion(struct seat *seat, struct wlr_pointer *pointer,
+@@ -922,7 +934,10 @@ preprocess_cursor_motion(struct seat *seat, struct wlr_pointer *pointer,
  	 * NULL for the device if you want to move the cursor around
  	 * without any input.
  	 */
@@ -140,10 +140,11 @@ index 5a169bd..7118a30 100644
 +	if (!air_spatial_motion(dx, dy)) {
 +		wlr_cursor_move(seat->cursor, &pointer->base, dx, dy);
 +	}
++	if (air_spatial_manipulating()) { return; }
  	double sx, sy;
  	bool notify = cursor_process_motion(time_msec, &sx, &sy);
  	if (notify) {
-@@ -947,6 +961,8 @@ static double get_natural_scroll_factor(struct wlr_input_device *wlr_input_devic
+@@ -947,6 +962,8 @@ static double get_natural_scroll_factor(struct wlr_input_device *wlr_input_devic
  static void
  handle_motion(struct wl_listener *listener, void *data)
  {
@@ -152,7 +153,7 @@ index 5a169bd..7118a30 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits a
  	 * _relative_ pointer motion event (i.e. a delta)
-@@ -997,6 +1013,11 @@ handle_motion(struct wl_listener *listener, void *data)
+@@ -997,6 +1014,11 @@ handle_motion(struct wl_listener *listener, void *data)
  static void
  handle_motion_absolute(struct wl_listener *listener, void *data)
  {
@@ -164,7 +165,7 @@ index 5a169bd..7118a30 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits an
  	 * _absolute_ motion event, from 0..1 on each axis. This happens, for
-@@ -1171,6 +1192,10 @@ static uint32_t press_msec;
+@@ -1171,6 +1193,10 @@ static uint32_t press_msec;
  bool
  cursor_process_button_press(struct seat *seat, uint32_t button, uint32_t time_msec)
  {
@@ -175,7 +176,7 @@ index 5a169bd..7118a30 100644
  	struct cursor_context ctx = get_cursor_context();
  
  	/* Used on next button release to check if it can close menu or select menu item */
-@@ -1318,6 +1343,8 @@ cursor_finish_button_release(struct seat *seat, uint32_t button)
+@@ -1318,6 +1344,8 @@ cursor_finish_button_release(struct seat *seat, uint32_t button)
  static void
  handle_button(struct wl_listener *listener, void *data)
  {
@@ -184,7 +185,15 @@ index 5a169bd..7118a30 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits a button
  	 * event.
-@@ -1402,6 +1429,9 @@ static bool
+@@ -1326,6 +1354,7 @@ handle_button(struct wl_listener *listener, void *data)
+ 	struct wlr_pointer_button_event *event = data;
+ 	idle_manager_notify_activity(seat->wlr_seat);
+ 	cursor_set_visible(seat, /* visible */ true);
++	if (air_spatial_button(event->button, event->state == WL_POINTER_BUTTON_STATE_PRESSED)) { return; }
+ 
+ 	bool notify;
+ 	switch (event->state) {
+@@ -1402,6 +1431,9 @@ static bool
  process_cursor_axis(enum wl_pointer_axis orientation,
  		double delta, double delta_discrete)
  {
@@ -194,7 +203,7 @@ index 5a169bd..7118a30 100644
  	struct cursor_context ctx = get_cursor_context();
  	uint32_t modifiers = keyboard_get_all_modifiers(&server.seat);
  
-@@ -1465,6 +1495,8 @@ process_cursor_axis(enum wl_pointer_axis orientation,
+@@ -1465,6 +1497,8 @@ process_cursor_axis(enum wl_pointer_axis orientation,
  static void
  handle_axis(struct wl_listener *listener, void *data)
  {
@@ -203,6 +212,14 @@ index 5a169bd..7118a30 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits an axis
  	 * event, for example when you move the scroll wheel.
+@@ -1473,6 +1507,7 @@ handle_axis(struct wl_listener *listener, void *data)
+ 	struct wlr_pointer_axis_event *event = data;
+ 	idle_manager_notify_activity(seat->wlr_seat);
+ 	cursor_set_visible(seat, /* visible */ true);
++	if (air_spatial_axis(event->orientation, event->delta)) { return; }
+ 
+ 	/* input->scroll_factor is set for pointer/touch devices */
+ 	assert(event->pointer->base.type == WLR_INPUT_DEVICE_POINTER
 diff --git a/src/input/keyboard.c b/src/input/keyboard.c
 index 78dfbb4..ff2ee24 100644
 --- a/src/input/keyboard.c

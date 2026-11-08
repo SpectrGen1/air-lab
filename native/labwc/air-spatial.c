@@ -66,9 +66,19 @@ static struct {
     struct {
         uint64_t id;
         struct workspace *workspace;
-        double angle, height;
+        double angle, height, distance, scale_x, scale_y;
     } poses[512];
     int poses_count;
+    uint64_t hover_id;
+    uint32_t hover_region, cursor_region;
+    bool native_left_down;
+    struct {
+        uint64_t view_id, root_id;
+        struct workspace *workspace;
+        uint32_t region;
+        double theta, pointer_height, angle, height, distance, scale_x, scale_y, x, y;
+        struct air_panel plane;
+    } manipulation;
     struct {
         char name[128];
         bool enabled;
@@ -227,6 +237,8 @@ static int pose_for(struct view *v, int index) {
     xr.poses[i].workspace = v->workspace;
     xr.poses[i].angle = awrap(index == 0 ? 0 : ((index + 1) / 2) * .98 * (index % 2 ? -1 : 1));
     xr.poses[i].height = 0;
+    xr.poses[i].distance = AIR_RADIUS;
+    xr.poses[i].scale_x = xr.poses[i].scale_y = 1;
     return i;
 }
 static bool scene_update(void) {
@@ -254,8 +266,11 @@ static bool scene_update(void) {
         }
         if (!found)
             continue;
+        snprintf(p->title, sizeof(p->title), "%s", v->title ? v->title : "Window");
         p->width = v->current.width;
         p->height = v->current.height;
+        if (p->width <= 0 || p->height <= 0)
+            continue;
         struct wlr_box box = {0};
         wlr_scene_node_for_each_buffer(&v->capture.scene->tree.node, bbox, &box);
         if (box.width <= 0 || box.height <= 0)
@@ -284,16 +299,20 @@ static bool scene_update(void) {
         }
         p->azimuth = xr.poses[root_pose].angle;
         p->elevation = xr.poses[root_pose].height;
-        p->distance = AIR_RADIUS - depth * .005;
+        p->distance = xr.poses[root_pose].distance - depth * .005;
+        p->metres_per_pixel = panel_scale * fmin(.0009, 1.3 / fmax(1, root->current.width));
+        p->metres_per_pixel_y = p->metres_per_pixel * xr.poses[root_pose].scale_y;
+        p->metres_per_pixel *= xr.poses[root_pose].scale_x;
         if (parent) {
-            p->metres_per_pixel = panel_scale * fmin(.0009, 1.3 / fmax(1, root->current.width));
             p->azimuth = awrap(p->azimuth + xr.poses[i].angle);
             p->elevation += xr.poses[i].height + (root->current.y + root->current.height * .5 -
                                                   v->current.y - v->current.height * .5) *
-                                                     p->metres_per_pixel;
+                                                     p->metres_per_pixel_y;
             p->tangent = (v->current.x + v->current.width * .5 - root->current.x -
                           root->current.width * .5) *
                          p->metres_per_pixel;
+            p->metres_per_pixel *= xr.poses[i].scale_x;
+            p->metres_per_pixel_y *= xr.poses[i].scale_y;
         }
         n++;
     }
@@ -326,6 +345,8 @@ static bool hit_context(struct cursor_context *ctx, struct air_vec *point) {
     struct air_vec d = aray(xr.theta, xr.height);
     double best = 1e30;
     bool hit = false;
+    xr.hover_id = 0;
+    xr.hover_region = 0;
     *ctx = (struct cursor_context){.type = LAB_NODE_ROOT};
     *point = ascale(d, AIR_RADIUS);
     bool grab = server.seat.pressed.ctx.surface &&
@@ -358,6 +379,18 @@ static bool hit_context(struct cursor_context *ctx, struct air_vec *point) {
         struct wlr_scene_node *node =
             wlr_scene_node_at(&e->view->capture.scene->tree.node, x, y, &sx, &sy);
         struct wlr_surface *surface = node ? lab_wlr_surface_from_node(node) : NULL;
+        uint32_t region = aframe_region(&e->panel, x, y);
+        if (region && !surface) {
+            /* Popups extending over the spatial frame retain their own input.
+             * The frame itself has no client surface and never receives seat buttons. */
+            *ctx = (struct cursor_context){.type = LAB_NODE_ROOT};
+            xr.hover_id = e->panel.id;
+            xr.hover_region = region;
+            best = t;
+            *point = ascale(d, t);
+            hit = true;
+            continue;
+        }
         if (!surface)
             continue; /* Input holes allow a farther panel to win. */
         struct wlr_surface *root_surface = wlr_surface_get_root_surface(surface);
@@ -378,6 +411,8 @@ static bool hit_context(struct cursor_context *ctx, struct air_vec *point) {
                                        .sx = sx,
                                        .sy = sy};
         best = t;
+        xr.hover_id = e->panel.id;
+        xr.hover_region = 0;
         *point = ascale(d, t);
         hit = true;
     }
@@ -398,18 +433,41 @@ static void pointer_packet(void) {
     struct cursor_context ctx;
     struct air_vec point;
     bool hit = hit_context(&ctx, &point);
+    if (xr.manipulation.region) {
+        for (int i = 0; i < xr.count; i++) {
+            if (xr.scene[i].panel.id != xr.manipulation.view_id)
+                continue;
+            double x, y, t;
+            struct air_vec ray = aray(xr.theta, xr.height);
+            if (aplane(&xr.scene[i].panel, ray, &x, &y, &t)) {
+                point = ascale(ray, t);
+                hit = true;
+            }
+            break;
+        }
+    }
     struct air_packet m = {.type = AIR_POINTER};
     m.data.pointer.xyz[0] = point.x;
     m.data.pointer.xyz[1] = point.y;
     m.data.pointer.xyz[2] = point.z;
     m.data.pointer.hit = hit;
     m.data.pointer.active = xr.mode == SPATIAL;
+    m.data.pointer.view_id = xr.manipulation.region ? xr.manipulation.view_id : xr.hover_id;
+    m.data.pointer.region = xr.manipulation.region ? xr.manipulation.region : xr.hover_region;
+    if (xr.mode == SPATIAL && xr.cursor_region != m.data.pointer.region) {
+        xr.cursor_region = m.data.pointer.region;
+        air_spatial_cursor_name("default");
+    }
     if (!send_packet(&m, -1))
         air_spatial_stop("presentation pointer channel stalled");
 }
 bool air_spatial_context(struct cursor_context *ctx) {
     if (!air_spatial_active())
         return false;
+    if (xr.manipulation.region) {
+        *ctx = (struct cursor_context){.type = LAB_NODE_ROOT};
+        return true;
+    }
     scene_update();
     if (!air_spatial_active())
         return false;
@@ -422,6 +480,174 @@ bool air_spatial_context(struct cursor_context *ctx) {
     struct air_vec point;
     hit_context(ctx, &point);
     return true;
+}
+bool air_spatial_manipulating(void) { return air_spatial_active() && xr.manipulation.region != 0; }
+static struct view *root_view(struct view *view) {
+    for (int depth = 0; view && depth < 16; depth++) {
+        struct view *parent = view->impl->get_parent ? view->impl->get_parent(view) : NULL;
+        if (!parent)
+            return view;
+        view = parent;
+    }
+    return NULL;
+}
+static void manipulation_update(void) {
+    struct view *view = find_view(xr.manipulation.view_id);
+    struct view *root = find_view(xr.manipulation.root_id);
+    if (!eligible(view) || !eligible(root) || view->workspace != xr.manipulation.workspace) {
+        xr.manipulation.region = 0;
+        return;
+    }
+    if (now_ns() - xr.pose_stamp > 250000000)
+        return;
+    int i = pose_for(view, 0), root_i = pose_for(root, 0);
+    if (i < 0 || root_i < 0)
+        return;
+    if (xr.manipulation.region == AIR_TITLE) {
+        if (view == root) {
+            const struct air_panel *p = &xr.manipulation.plane;
+            agrab_position((xr.manipulation.x - p->width * .5) * p->metres_per_pixel,
+                           (p->height * .5 - xr.manipulation.y) * apixel_y(p),
+                           xr.poses[root_i].distance, xr.theta, xr.height, &xr.poses[root_i].angle,
+                           &xr.poses[root_i].height);
+        } else {
+            xr.poses[root_i].angle =
+                awrap(xr.manipulation.angle + awrap(xr.theta - xr.manipulation.theta));
+            xr.poses[root_i].height =
+                aclamp((xr.manipulation.height + (xr.height - xr.manipulation.pointer_height) *
+                                                     xr.manipulation.distance / AIR_RADIUS) *
+                           xr.poses[root_i].distance / xr.manipulation.distance,
+                       -3, 3);
+        }
+    } else {
+        double x, y, t;
+        if (!aplane(&xr.manipulation.plane, aray(xr.theta, xr.height), &x, &y, &t))
+            return; /* Keep the last size near a parallel/back-facing grab plane. */
+        const struct air_panel *p = &xr.manipulation.plane;
+        uint32_t region = xr.manipulation.region;
+        if (region & (AIR_EDGE_LEFT | AIR_EDGE_RIGHT)) {
+            double width = p->width * p->metres_per_pixel;
+            double span = aresize_span(width, (x - xr.manipulation.x) * p->metres_per_pixel,
+                                       region & AIR_EDGE_RIGHT ? 1 : -1);
+            xr.poses[i].scale_x = xr.manipulation.scale_x * span / width;
+        }
+        if (region & (AIR_EDGE_TOP | AIR_EDGE_BOTTOM)) {
+            double height = p->height * apixel_y(p);
+            double span = aresize_span(height, (y - xr.manipulation.y) * apixel_y(p),
+                                       region & AIR_EDGE_BOTTOM ? 1 : -1);
+            xr.poses[i].scale_y = xr.manipulation.scale_y * span / height;
+        }
+    }
+    scene_update();
+}
+static void manipulation_log(const char *event) {
+    struct view *view = find_view(xr.manipulation.view_id);
+    struct view *root = find_view(xr.manipulation.root_id);
+    if (!view || !root)
+        return;
+    int i = pose_for(view, 0), root_i = pose_for(root, 0);
+    if (i < 0 || root_i < 0)
+        return;
+    wlr_log(WLR_INFO,
+            "spatial control %s id=%llu region=%u angle=%.6f height=%.6f "
+            "distance=%.6f scale=%.6f,%.6f desktop=%d,%d,%d,%d",
+            event, (unsigned long long)view->creation_id, xr.manipulation.region,
+            xr.poses[root_i].angle, xr.poses[root_i].height, xr.poses[root_i].distance,
+            xr.poses[i].scale_x, xr.poses[i].scale_y, view->current.x, view->current.y,
+            view->current.width, view->current.height);
+}
+bool air_spatial_button(uint32_t button, bool pressed) {
+    if (button == BTN_LEFT && !pressed && xr.native_left_down) {
+        xr.native_left_down = false;
+        if (xr.manipulation.region) {
+            manipulation_update();
+            manipulation_log("end");
+            xr.manipulation.region = 0;
+            xr.cursor_region = UINT32_MAX;
+            if (air_spatial_active()) {
+                pointer_packet();
+                cursor_update_focus();
+            }
+        }
+        return true; /* Also consumes the matching release after forced desktop. */
+    }
+    if (!air_spatial_active())
+        return false;
+    if (xr.native_left_down) {
+        if (pressed)
+            lab_set_add(&server.seat.bound_buttons, button);
+        return pressed;
+    }
+    if (!pressed || !air_spatial_press_allowed() || !xr.hover_region)
+        return false;
+    if (server.input_mode != LAB_INPUT_STATE_PASSTHROUGH)
+        return false;
+    if (button != BTN_LEFT) {
+        lab_set_add(&server.seat.bound_buttons, button);
+        return true;
+    }
+    if (server.seat.wlr_seat->pointer_state.button_count ||
+        wlr_seat_pointer_has_grab(server.seat.wlr_seat))
+        return false;
+    struct view *view = find_view(xr.hover_id), *root = root_view(view);
+    if (!view || !root)
+        return false;
+    for (int j = 0; j < xr.count; j++) {
+        if (xr.scene[j].panel.id != xr.hover_id)
+            continue;
+        int i = pose_for(view, 0), root_i = pose_for(root, 0);
+        if (i < 0 || root_i < 0)
+            return false;
+        xr.manipulation.view_id = view->creation_id;
+        xr.manipulation.root_id = root->creation_id;
+        xr.manipulation.workspace = view->workspace;
+        xr.manipulation.region = xr.hover_region;
+        xr.manipulation.theta = xr.theta;
+        xr.manipulation.pointer_height = xr.height;
+        xr.manipulation.angle = xr.poses[root_i].angle;
+        xr.manipulation.height = xr.poses[root_i].height;
+        xr.manipulation.distance = xr.poses[root_i].distance;
+        xr.manipulation.scale_x = xr.poses[i].scale_x;
+        xr.manipulation.scale_y = xr.poses[i].scale_y;
+        xr.manipulation.plane = xr.scene[j].panel;
+        double t;
+        aplane(&xr.manipulation.plane, aray(xr.theta, xr.height), &xr.manipulation.x,
+               &xr.manipulation.y, &t);
+        xr.native_left_down = true;
+        xr.cursor_region = UINT32_MAX;
+        cursor_context_save(&server.seat.pressed, NULL);
+        desktop_focus_view_or_surface(&server.seat, view, view->surface, true);
+        manipulation_log("begin");
+        scene_update();
+        cursor_update_focus();
+        pointer_packet();
+        return true;
+    }
+    return false;
+}
+bool air_spatial_axis(uint32_t orientation, double delta) {
+    if (!air_spatial_active())
+        return false;
+    if (xr.manipulation.region) {
+        if (xr.manipulation.region == AIR_TITLE && orientation == WL_POINTER_AXIS_VERTICAL_SCROLL &&
+            isfinite(delta) && now_ns() - xr.pose_stamp < 250000000) {
+            struct view *root = find_view(xr.manipulation.root_id);
+            if (eligible(root) && root->workspace == xr.manipulation.workspace) {
+                int i = pose_for(root, 0);
+                if (i >= 0) {
+                    xr.poses[i].distance =
+                        aclamp(xr.poses[i].distance * exp(aclamp(delta, -100, 100) * .008), .45, 4);
+                    manipulation_update();
+                    pointer_packet();
+                }
+            }
+        }
+        return true;
+    }
+    struct cursor_context ctx;
+    struct air_vec point;
+    hit_context(&ctx, &point);
+    return xr.hover_region != 0;
 }
 bool air_spatial_motion(double dx, double dy) {
     if (!air_spatial_active())
@@ -436,6 +662,8 @@ bool air_spatial_motion(double dx, double dy) {
     xr.pointer_pending = xr.ack != xr.epoch;
     xr.theta = awrap(xr.theta + dx * .0012);
     xr.height = aclamp(xr.height - dy * .0012 * AIR_RADIUS, -1.2, 1.2);
+    if (xr.manipulation.region)
+        manipulation_update();
     pointer_packet();
     return true;
 }
@@ -493,7 +721,7 @@ static void enter(void) {
         now_ns() - xr.pose_stamp > 250000000)
         return;
     if (server.seat.current_constraint || server.seat.drag.active ||
-        server.seat.wlr_seat->pointer_state.button_count) {
+        server.seat.wlr_seat->pointer_state.button_count || xr.native_left_down) {
         status("Release buttons and pointer constraints before entry");
         return;
     }
@@ -526,6 +754,8 @@ void air_spatial_stop(const char *reason) {
     if (xr.mode == DESKTOP || xr.mode == RESTORING)
         return;
     xr.mode = RESTORING;
+    xr.manipulation.region = 0;
+    xr.cursor_region = 0;
     cursor_detach();
     wlr_log(WLR_INFO, "spatial: restoring desktop (%s)", reason);
     if (xr.io) {
@@ -661,7 +891,7 @@ static int socket_read(int fd, uint32_t mask, void *data) {
             bool new_revision = xr.ack != m.epoch;
             xr.ack = m.epoch;
             xr.heartbeat = m.stamp_ns;
-            if (new_revision && xr.mode == SPATIAL) {
+            if (new_revision && xr.mode == SPATIAL && !xr.manipulation.region) {
                 if (xr.pointer_pending) {
                     double sx, sy;
                     if (cursor_process_motion(now_ns() / 1000000, &sx, &sy))
@@ -823,7 +1053,7 @@ static int tick(void *data) {
     if ((xr.mode == SPATIAL || (xr.mode == ARMING && xr.ready)) &&
         (now - xr.pose_stamp > 700000000 || now - xr.heartbeat > 1000000000)) {
         air_spatial_stop(now - xr.pose_stamp > 700000000 ? "tracking watchdog expired"
-                                                       : "presentation watchdog expired");
+                                                         : "presentation watchdog expired");
         return 0;
     }
     if (xr.mode == ARMING && !xr.ready && now - xr.started > 120000000000ULL) {
@@ -944,8 +1174,23 @@ bool air_spatial_cursor_name(const char *name) {
     if (!air_spatial_active())
         return false;
     cursor_detach();
+    uint32_t region = xr.manipulation.region ? xr.manipulation.region : xr.hover_region;
+    if (region == AIR_TITLE)
+        name = xr.native_left_down ? "grabbing" : "grab";
+    else if ((region & (AIR_EDGE_LEFT | AIR_EDGE_RIGHT)) &&
+             (region & (AIR_EDGE_TOP | AIR_EDGE_BOTTOM)))
+        name = (region == (AIR_EDGE_TOP | AIR_EDGE_LEFT) ||
+                region == (AIR_EDGE_BOTTOM | AIR_EDGE_RIGHT))
+                   ? "nwse-resize"
+                   : "nesw-resize";
+    else if (region & (AIR_EDGE_LEFT | AIR_EDGE_RIGHT))
+        name = "ew-resize";
+    else if (region & (AIR_EDGE_TOP | AIR_EDGE_BOTTOM))
+        name = "ns-resize";
     struct wlr_xcursor *cursor =
         wlr_xcursor_manager_get_xcursor(server.seat.xcursor_manager, name, 1);
+    if (!cursor && region)
+        cursor = wlr_xcursor_manager_get_xcursor(server.seat.xcursor_manager, "left_ptr", 1);
     if (cursor && cursor->image_count) {
         struct wlr_xcursor_image *i = cursor->images[0];
         return cursor_pixels(i->buffer, i->width, i->height, i->width * 4, i->hotspot_x,
@@ -1030,6 +1275,8 @@ void air_spatial_finish(void) {
 }
 
 void air_spatial_forget_view(struct view *v) {
+    if (xr.manipulation.view_id == v->creation_id || xr.manipulation.root_id == v->creation_id)
+        xr.manipulation.region = 0;
     for (int i = 0; i < xr.count; i++)
         if (xr.scene[i].view == v) {
             xr.scene[i].view = NULL;

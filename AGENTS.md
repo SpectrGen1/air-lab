@@ -28,6 +28,16 @@ Image-copy capture does not use `wl_buffer.release`: ready/failed completes
 ownership. Preserve the completion-handler regression in `test_capture_completion.py`;
 otherwise a resize failure can strand a buffer and stop subsequent captures.
 
+Spatial controls use private protocol v2 and require a matching compositor/
+presenter plus a fresh login. `air-math.h` owns origin-facing planes (including
+elevation), separate X/Y pixel scales, capture-group frame bounds and grab-point
+depth math. A native outer title bar moves the root group around the cylinder;
+wheel while held changes radial distance. Edges/corners resize physical spans
+about their centre, never the canonical client rectangle. Native-owned button
+releases must be consumed even after mode exit or view destruction. Identify
+grab targets by creation ID/workspace, not retained view pointers. Keep popup/
+shadow capture extents inside the frame and head pose out of manipulation math.
+
 ## Layout
 
 - `native/common/`: shared private protocol and world-space math.

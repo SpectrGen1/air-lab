@@ -2,6 +2,7 @@
 """Exercise native integration on two disposable nested outputs, never the host seat."""
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -105,6 +106,8 @@ try:
         subprocess.run(['setsid', '-f', 'python3', str(ROOT / 'native/tests/editor.py')], env=env,
                        stdout=log, stderr=subprocess.STDOUT, check=True)
     wait_for(lambda: (RUN / 'events.jsonl').exists(), 'GTK editor')
+    editor_pid = next(pid for pid, args in processes()
+                      if str(ROOT / 'native/tests/editor.py').encode() in args)
 
     def logs():
         return (RUN / 'compositor.log').read_text(errors='replace')
@@ -270,6 +273,95 @@ try:
     wait_for(lambda: not Path(f'/proc/{helper_pid}').exists(), 'hung helper termination')
     print('PASS: hung helper is terminated and outputs recover through the compositor watchdog', flush=True)
     enter()
+    # Spatial frame gestures never resize the actual desktop client or send it
+    # the consumed mouse buttons/wheel. Aim with the real virtual seat ray.
+    pose = dict(angle=0., height=0., distance=1.4, sx=1., sy=1.)
+    def aim(x, y):
+        angle, h, d = pose['angle'], pose['height'], pose['distance']
+        pitch = math.atan2(h, d)
+        right = (math.cos(angle), 0., -math.sin(angle))
+        up = (-math.sin(angle)*math.sin(pitch), math.cos(pitch), -math.cos(angle)*math.sin(pitch))
+        center = (d*math.sin(angle), h, d*math.cos(angle))
+        q = [center[i] + right[i]*(x-450)*.0006*pose['sx'] + up[i]*(300-y)*.0006*pose['sy'] for i in range(3)]
+        theta, height = math.atan2(q[0], q[2]), 1.4*q[1]/math.hypot(q[0],q[2])
+        control('chord', 33, 'motion', theta/.0012, -height/(.0012*1.4), 'wait', 100)
+    def finish_control(previous):
+        wait_for(lambda: logs().count('spatial control end') > previous, 'spatial frame release')
+        lines = [line for line in logs().splitlines() if 'spatial control end' in line]
+        m = re.search(r'angle=([-.0-9]+) height=([-.0-9]+) distance=([-.0-9]+) scale=([-.0-9]+),([-.0-9]+) desktop=([-0-9,]+)', lines[-1])
+        assert m, lines[-1]
+        values = list(map(float,m.groups()[:5]))
+        pose.update(zip(('angle','height','distance','sx','sy'),values))
+        return m.group(6)
+    before_events = len(events())
+    before = logs().count('spatial control end')
+    aim(906, 300)
+    control('button', 272, 1, 'motion', 30, 0, 'wait', 120, 'button', 272, 0)
+    desktop = finish_control(before)
+    assert pose['sx'] > 1 and abs(pose['sy']-1)<1e-6, pose
+    old_sx = pose['sx']
+    before = logs().count('spatial control end')
+    aim(-6, -46)
+    control('button', 272, 1, 'motion', -25, -25, 'wait', 120, 'button', 272, 0)
+    assert finish_control(before) == desktop
+    assert pose['sx'] > old_sx and pose['sy'] > 1, pose
+    assert desktop.endswith(',900,600'), desktop
+    print('PASS: spatial edge/corner resize changes physical size while desktop rectangles stay intact', flush=True)
+
+    before = logs().count('spatial control end')
+    aim(450, -20)
+    control('button', 272, 1)
+    stationary = pose.copy()
+    angles = [12., 4., 6.]
+    time.sleep(.2)
+    angles = [0.,0.,0.]
+    time.sleep(.2)
+    control('button', 272, 0)
+    assert finish_control(before) == desktop
+    assert pose == stationary, (pose, stationary)
+    before = logs().count('spatial control end')
+    aim(450, -20)
+    control('button', 272, 1, 'motion', 80, 30, 'axis', 10, 'wait', 120, 'button', 272, 0)
+    assert finish_control(before) == desktop
+    assert pose['angle'] > .05 and pose['height'] < 0 and pose['distance'] > 1.4, pose
+    assert not [e for e in events()[before_events:] if e['kind'] in ('press','release','scroll')]
+    image_data = subprocess.check_output(['grim','-o','WL-2','-t','png','-'],env=env,timeout=5)
+    (RUN / 'spatial-controls.png').write_bytes(image_data)
+    print('PASS: title drag moves on the cylinder, wheel changes depth, and head-only motion never moves the panel', flush=True)
+    before = logs().count('spatial control end')
+    aim(450, -20)
+    control('button', 272, 1, 'axis', -10, 'wait', 120, 'button', 272, 0)
+    assert finish_control(before) == desktop
+    assert abs(pose['distance']-1.4)<1e-5, pose
+    assert abs(pose['sx']-stationary['sx'])<1e-6 and abs(pose['sy']-stationary['sy'])<1e-6
+
+    aim(450, -20)
+    control('button', 272, 1)
+    before_events = len(events())
+    restore()
+    control('button', 272, 0)
+    assert not [e for e in events()[before_events:] if e['kind'] in ('press','release')]
+    assert Path(f"/proc/{editor_pid}").exists()
+    enter()
+    control('key', 30)
+    assert any(e['kind']=='text' for e in events()[before_events:])
+    print('PASS: forced exit during a spatial drag consumes its release and preserves the original editor', flush=True)
+    control('key', 61)  # F3: a disposable second toplevel, not another application process.
+    wait_for(lambda: any(e['kind']=='lifecycle-ready' for e in events()), 'lifecycle window')
+    pose = dict(angle=0., height=0., distance=1.4, sx=1., sy=1.)
+    before = logs().count('spatial control begin')
+    aim(450, -20)
+    control('button', 272, 1)
+    wait_for(lambda: logs().count('spatial control begin') > before, 'lifecycle frame held')
+    before_events = len(events())
+    control('key', 1)
+    wait_for(lambda: any(e['kind']=='lifecycle-closed' for e in events()), 'held view destroyed')
+    control('motion', 10, 10, 'button', 272, 0)
+    assert not [e for e in events()[before_events:] if e['kind'] in ('press','release')]
+    control('key', 30)
+    assert any(e['kind']=='text' for e in events()[before_events:])
+    assert Path(f"/proc/{editor_pid}").exists()
+    print('PASS: destroying a held spatial panel cancels its grab without a stray release or losing the editor', flush=True)
     before = logs().count('output topology changed')
     parent_env = base_env | {'AIR_TEST_CONFIRM_DISPOSABLE': '1'}
     subprocess.run([str(DISCONNECT)], env=parent_env, check=True, timeout=5)

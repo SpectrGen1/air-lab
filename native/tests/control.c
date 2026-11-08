@@ -73,6 +73,12 @@ int main(int argc, char **argv) {
                                            wl_fixed_from_double(dy));
             zwlr_virtual_pointer_v1_frame(p);
             i += 3;
+        } else if (!strcmp(argv[i], "axis") && i + 1 < argc) {
+            zwlr_virtual_pointer_v1_axis_source(p, WL_POINTER_AXIS_SOURCE_WHEEL);
+            zwlr_virtual_pointer_v1_axis(p, t, WL_POINTER_AXIS_VERTICAL_SCROLL,
+                                         wl_fixed_from_double(atof(argv[i + 1])));
+            zwlr_virtual_pointer_v1_frame(p);
+            i += 2;
         } else if (!strcmp(argv[i], "button") && i + 2 < argc) {
             zwlr_virtual_pointer_v1_button(p, t, atoi(argv[i + 1]), atoi(argv[i + 2]));
             zwlr_virtual_pointer_v1_frame(p);

@@ -11,7 +11,8 @@ counter=[0]
 def animate():
  counter[0]+=1;label.set_text("Frame callback check "+str(counter[0]));return True
 GLib.timeout_add(120,animate)
-t.add_events(Gdk.EventMask.POINTER_MOTION_MASK|Gdk.EventMask.BUTTON_PRESS_MASK|Gdk.EventMask.BUTTON_RELEASE_MASK|Gdk.EventMask.ENTER_NOTIFY_MASK|Gdk.EventMask.LEAVE_NOTIFY_MASK)
+t.add_events(Gdk.EventMask.SCROLL_MASK|Gdk.EventMask.POINTER_MOTION_MASK|Gdk.EventMask.BUTTON_PRESS_MASK|Gdk.EventMask.BUTTON_RELEASE_MASK|Gdk.EventMask.ENTER_NOTIFY_MASK|Gdk.EventMask.LEAVE_NOTIFY_MASK)
+t.connect('scroll-event',lambda widget,e:emit('scroll') or False)
 t.connect('motion-notify-event',lambda widget,e:emit('motion',x=e.x,y=e.y) or False)
 t.connect('enter-notify-event',lambda widget,e:emit('enter',x=e.x,y=e.y) or False)
 t.connect('leave-notify-event',lambda widget,e:emit('leave') or False)
@@ -19,6 +20,14 @@ t.connect('button-press-event',lambda widget,e:emit('press',button=e.button,x=e.
 t.connect('button-release-event',lambda widget,e:emit('release',button=e.button,x=e.x,y=e.y) or False)
 def keypress(widget,e):
  emit('key',key=e.keyval)
+ if e.keyval == Gdk.KEY_F3:
+  other=Gtk.Window(title='Spatial lifecycle test');other.set_default_size(900,600)
+  other.add(Gtk.Label(label='Close this window while its spatial frame is held.'))
+  def close_other(widget,event):
+   if event.keyval == Gdk.KEY_Escape:
+    emit('lifecycle-closed');other.destroy();return True
+   return False
+  other.connect('key-press-event',close_other);other.show_all();emit('lifecycle-ready');return True
  if e.keyval == Gdk.KEY_F2:
   dialog=Gtk.Dialog(title='Native modal test',transient_for=w,flags=Gtk.DialogFlags.MODAL)
   dialog.add_button('Close',Gtk.ResponseType.CLOSE)

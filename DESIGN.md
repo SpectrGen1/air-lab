@@ -15,6 +15,22 @@ Head and pointer are independent. Turning the head alone must not send a Wayland
 
 ## Picking and event routing
 
+Panels have independent physical width/height and radial distance as well as
+azimuth and cylinder height. Each plane is perpendicular to the line from its
+centre to the fixed viewer origin, including when raised or lowered. Head turns
+change the camera projection; they do not reorient or translate panels in the
+workspace. The interaction pointer remains on its workspace-fixed cylinder.
+
+Provide a spatial frame outside the captured surface group. Left-dragging its
+top bar translates the panel on the cylinder; scrolling while that bar is held
+changes radial distance, keeping the held point on the mouse ray. Edge drags
+resize one physical axis and corner drags resize both about the panel centre.
+These controls transform the spatial presentation without resizing or moving
+the canonical desktop client. Consume their button/wheel events in labwc; do not
+forward them as application input. Preserve matching releases through cancellation,
+target destruction and force-desktop recovery. Transient groups stay attached to
+their root when moved or changed in depth.
+
 Workspace frame X right, Y up, Z forward; R positive. Store azimuth and physical cylinder height. Mouse updates theta and height; head pose is not an argument to this operation. Let `d = normalize(R sin θ, h, R cos θ)`. From the cyclopean eye origin O, intersect the ray with each eligible panel using `t = dot(C-O,n)/dot(d,n)`. Reject parallel/back-facing/behind hits. In panel coordinates, use logical width and height, reject non-input regions, then choose the nearest eligible hit (the next panel can win through an input hole). Resolve coplanar ties with scene stacking. Render the cursor at this hit for both eyes; over empty space use the actual cylinder point. Use child-local coordinates and the appropriate cursor image/hotspot from the client. Do not subtract camera yaw from pointer azimuth before hit testing.
 
 `src/desktop.c:get_cursor_context()` and `src/input/cursor.c:cursor_process_motion()` are starting points, not a ready-made 3D API. Split coordinate lookup from the remaining desktop policy. Intersect in 3D, hit test within the particular view subtree/group, form a normal cursor context, run the real seat path. Audit all helpers that still read the flat global cursor, notably pressed drags, SSD edge tests, drag icons and compositor move/resize. During an implicit grab, project onto the grabbed plane at unbounded local coordinates until release; avoid jumps near a parallel plane, retaining the last valid point as needed. Explicit popup grabs/drag-and-drop use normal seat rules; DnD can change destination surfaces while the source drag remains active. Never drop the matching release solely because the pointer left the field of view. No generic user-space pointer warps as the main implementation.

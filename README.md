@@ -15,6 +15,9 @@ effect; actual feed loss or renderer failure still restores the desktop.
 - **Super+Alt+X**: preview/toggle; **Super+Alt+Return**: confirm first entry and sleep monitors.
 - **Super+Alt+Escape**: force desktop; **Super+Alt+R**: recenter; **Super+Alt+F**: summon pointer.
 - **Super+Alt+Arrows**: move the focused panel; ordinary Alt+Tab/workspace switching remains available.
+- **Spatial title bar:** left-drag to move around the cylinder; scroll while
+  holding it to move closer/farther. Drag the outer edges/corners to resize in 3D.
+  Panels always face the viewer origin; desktop window sizes stay intact.
 
 Read [NATIVE.md](docs/NATIVE.md) for the build, tests, stock-session fallback,
 physical acceptance checks and remaining feature gates. The native path uses
