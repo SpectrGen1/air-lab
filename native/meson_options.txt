@@ -1,0 +1,1 @@
+option('layer_protocol',type:'string',description:'Absolute path to wlr-layer-shell-unstable-v1.xml')

@@ -1,6 +1,8 @@
-# Workstation setup
+# Browser baseline setup
 
 Verified on `spectre`, Brian's Gentoo/OpenRC desktop, 2026-11-07.
+For the subsequently implemented native desktop session, use [NATIVE.md](NATIVE.md).
+Its session-owned tracker excludes a second `run-lab.py --pose` reader.
 Commands run as the desktop user, without sudo.
 
 ## Files and dependencies

@@ -1,6 +1,23 @@
 # Air Spatial Lab
 
-An interaction prototype for the **original XREAL Air + an existing labwc session**. The mouse moves a point on a workspace-fixed cylinder. The ray starts between the eyes. The camera rotates independently. This prototype uses a mono viewport, not OpenXR or calibrated stereo. It never forwards clicks to other programs, changes monitor power, or edits your labwc configuration.
+A native spatial desktop integration and a retained browser interaction study for the **original XREAL Air + labwc**. The mouse moves a point on a workspace-fixed cylinder while the camera rotates independently. Both currently use mono presentation; OpenXR and calibrated stereo are later milestones. The native integration routes real input and manages monitor power. The browser study only previews content.
+
+## Native desktop integration
+
+The native labwc integration is built and tested; its session launcher is staged
+for the next login. Save your work, log out once, and log back in to activate it.
+Subsequent spatial toggles keep your existing applications connected to the same
+labwc. Leave the Air motionless for one minute after login/reconnection.
+
+- **Super+Alt+X**: preview/toggle; **Super+Alt+Return**: confirm first entry and sleep monitors.
+- **Super+Alt+Escape**: force desktop; **Super+Alt+R**: recenter; **Super+Alt+F**: summon pointer.
+- **Super+Alt+Arrows**: move the focused panel; ordinary Alt+Tab/workspace switching remains available.
+
+Read [NATIVE.md](docs/NATIVE.md) for the build, tests, stock-session fallback,
+physical acceptance checks and remaining feature gates. The native path uses
+EGL/SHM and real seat routing; the browser study below remains a separate
+read-only experiment. Physical Air sleep/unplug acceptance still needs the new
+login before this can be called a validated daily desktop.
 
 ## Local setup on spectre
 
@@ -94,7 +111,7 @@ The HTTP and UDP listeners bind to `127.0.0.1` only; HTTP uses a random capabili
 python3 -m unittest -v
 ```
 
-Tests use synthetic UDP and a stub `grim`. No headset, labwc, or desktop power manager is simulated as real hardware. This is not an installable compositor patch, global hotkey, or daily-driver session. `DESIGN.md` describes that next step.
+The bridge tests use synthetic UDP and a stub `grim`; launcher tests check private transport and tracker ownership. Native compositor tests and physical acceptance requirements are documented in [NATIVE.md](docs/NATIVE.md). Synthetic results do not establish physical hardware acceptance or completion of every `DESIGN.md` gate.
 
 ### Upstream references
 

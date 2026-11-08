@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Run the locally built tracker in UDP-only mode with project-local settings."""
 import argparse
+import fcntl
 import os
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(os.environ.get('AIR_LAB_ROOT', Path(__file__).resolve().parent.parent)).resolve()
 
 
 def main():
@@ -13,9 +14,18 @@ def main():
     options = parser.parse_args()
     if not 1 <= options.udp_port <= 65535:
         parser.error('invalid UDP port')
-    binary = ROOT / '.local/build/xr-driver/xrDriver'
+    binary = Path(os.environ.get('AIR_LAB_TRACKER_BINARY', ROOT / '.local/build/xr-driver/xrDriver'))
     if not binary.is_file():
         parser.error('run sh scripts/build-tracker.sh first')
+    owner_dir = ROOT / '.local/tracker'
+    owner_dir.mkdir(parents=True, exist_ok=True)
+    owner = (owner_dir / 'owner.lock').open('a+')
+    try:
+        fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        parser.error('this lab already owns a tracker; stop it before starting another')
+    # Hold this project lock through exec, before touching the running config.
+    os.set_inheritable(owner.fileno(), True)
     # Keep the normal runtime directory: upstream uses its lock to exclude
     # another xrDriver instance. Only config/state/data are project-local.
     env = os.environ.copy()

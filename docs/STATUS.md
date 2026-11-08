@@ -71,24 +71,32 @@ The main setup mismatch was that the archived README assumed an installed
 XRLinuxDriver while the workstation only had a raw-sensor Rust probe. The local
 build and launch scripts now bridge that gap without a service installation.
 
-`DESIGN.md` specifies a much larger native system: original clients remain in
-labwc, the compositor owns input/focus/lock/output transitions, and the renderer
-uses a private transport. None of that is implemented by the browser preview.
-Do not label this baseline a completed native spatial desktop or daily toggle.
+## Native integration added 2026-11-07
 
-Before expanding development:
+The implementation now includes an optional labwc 0.20.3 patch, native EGL/SHM
+presenter, private inherited IPC/Wayland connections, compositor picking and seat
+routing, per-workspace panels, transient groups, cursor image transport, mode
+transactions, output power snapshots and recovery, and lock teardown. See
+`docs/NATIVE.md` for exact supported behavior and remaining feature gates.
 
-1. Complete design gate 1: direction checks for all axes, ten-minute yaw drift,
-   high-contrast text readability during turns, observed refresh and pose-to-submit
-   age. The short hardware checks above do not establish these results.
-2. Decide the native labwc patch/build workflow in a nested disposable session.
-   Running labwc is 0.20.2; the design links to 0.20.3 source. Select and pin the
-   patch baseline deliberately; do not replace the live compositor to experiment.
-3. Implement one-editor capture and real seat routing before broad window support.
-   Browser marks are not real editor clicks. Fractional scaling, popups, implicit
-   grabs and frame callbacks still require native validation.
-4. Gate stereo, low-copy capture, lock handling, escape/watchdog recovery and monitor
-   power transitions separately. Leave power transitions until the last design gate.
+The latest disposable two-output regression run passed real GTK editor
+clicks/typing, animation with its flat output asleep, head-only input independence,
+offscreen click protection, unbounded selection/release, scale 1.25, transient
+dialogs, lock blanking/re-entry, frozen-helper escape with one matching release,
+stale feed recovery, hung helper recovery, and simulated output disconnect without
+killing the editor. Six Python bridge/launcher tests, the tracker timestamp
+regression, and the native geometry test pass. Enabled/disabled labwc feature
+builds are checked. Evidence and binary hashes are in `.local/native-check/`.
 
-No remote has been configured or code pushed. Repository licensing has not been
-selected; retain provenance and review dependency licenses before distribution.
+The next-login launcher is staged with immutable local binaries and a stock
+fallback. The current running compositor has not been restarted. The required
+initial login into patched labwc is therefore still a user action. Actual Air
+sleep/wake/unplug, ordinary workloads, long-running video, ten-minute drift and
+optical readability still need physical acceptance after that login. Do not
+convert the nested test's results into claims of physical hardware validation.
+
+Server-side decorations and several advanced input/XWayland cases are remaining
+gates, with explicit desktop fallbacks for the currently recognized unsupported
+gestures. DMA-BUF optimization, stereo and DRM lease are separate later work.
+No remote or push destination has been configured; project licensing still needs
+selection before distribution. Upstream dependencies retain their licenses.
