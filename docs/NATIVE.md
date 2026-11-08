@@ -1,9 +1,10 @@
 # Native labwc spatial session
 
 The native implementation is built and tested in disposable nested sessions.
-The installed login launcher selects it on the next login. The current desktop
-has not been restarted. A physical Air entry/recovery check is still required
-before calling this a validated daily desktop.
+The installed login launcher selects it. After reboot on 2026-11-08, the patched
+compositor was verified running and the user confirmed visible native windows
+after the NVIDIA capture fix. Physical input/power/recovery checks are still
+required before calling this a validated daily desktop.
 
 ## Activate once, then toggle in-session
 
@@ -37,6 +38,11 @@ in the same compositor can activate automatically after a healthy preview;
 a second toggle during arming still cancels it. Locking always exits spatial
 mode, and unlocking does not re-enter it. Re-entry requires the explicit toggle.
 
+Alt+Tab changes focus but does not bring the selected panel into the viewing
+direction. Turn toward its position or use Super+Alt+Left/Right to move it.
+Face forward and use Super+Alt+R if the neutral view was set while the Air rested
+on the table. A panel locator remains a usability improvement to implement.
+
 The configured connector is DP-4, but the compositor verifies the Air display
 identity and USB `3318:0424`, and can find the same Air after connector renaming.
 It refuses a non-extended/overlapping physical layout. Wayland-backend outputs
@@ -59,6 +65,9 @@ are allowed separately for disposable nested tests.
   cursor. Changed content is uploaded into reusable GL textures. Head turns reuse
   textures; no PNG encoding/decoding is in the presentation path. This is a CPU
   SHM-to-GL upload path, not a measured zero-copy implementation.
+  The NVIDIA GLES path advertises 24-bit BGR888; conversion supports RGB888/BGR888
+  with explicit padded row stride as well as four-byte formats. Unsupported SHM
+  formats produce an error and recovery, rather than a silent black preview.
 - **Input** intersects the world cylinder ray with panel planes in labwc, then
   uses the particular capture group's scene subtree to find the real surface
   and its input region. The ordinary seat path receives child-local coordinates.
@@ -131,6 +140,7 @@ sh scripts/build-native-test-tools.sh
 python3 -m unittest -v
 sh scripts/check-tracker.sh
 python3 scripts/check-native.py
+AIR_NATIVE_TEST_RENDERER=gles2 python3 scripts/check-native.py
 ```
 
 Existing workstation dependencies were sufficient; no packages were installed.
@@ -176,6 +186,14 @@ Only Brian's existing `~/.local/bin/start-labwc-logged` launch command changes;
 its logging remains intact. `/usr/bin/labwc`, greetd, the kernel, kanshi and
 labwc's rc.xml are not replaced or reconfigured. The current desktop is never
 restarted by this script.
+
+For a renderer-only update with an identical compositor binary, run
+`python3 scripts/refresh-native-presenter.py` after installation. It backs up and
+redirects the old session's helper launcher to the new tested renderer for its
+next spawn, recording the redirect in the install manifest. Binaries remain
+frozen; the old release's helper launcher is the deliberate exception. Exit the
+preview and toggle again to use the update without logging out. A changed
+compositor still requires a new login.
 
 For a single stock session from a logged-in VT:
 

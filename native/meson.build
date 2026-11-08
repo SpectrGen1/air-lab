@@ -17,3 +17,5 @@ endforeach
 executable('air-presenter','presenter/presenter.c',generated,include_directories:include_directories('common'),dependencies:[dependency('wayland-client'),dependency('wayland-egl'),dependency('egl'),dependency('glesv2'),dependency('cairo'),cc.find_library('m')])
 math_test=executable('air-math-test','tests/math.c',include_directories:include_directories('common'),dependencies:cc.find_library('m'))
 test('spatial geometry',math_test)
+pixels_test=executable('air-pixels-test','tests/pixels.c',include_directories:include_directories('common'),dependencies:dependency('wayland-client'))
+test('capture pixel layouts',pixels_test)

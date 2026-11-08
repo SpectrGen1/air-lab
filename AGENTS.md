@@ -7,11 +7,12 @@ status and remotes before edits. This independent repo is `/home/work/projects/a
 workstation notes and the earlier raw probe are in the separate os-agent repo.
 
 The user authorized native integration and system configuration. The native
-implementation is now built, tested in nested sessions, and staged for the next
-login. The original running desktop was deliberately not restarted. Recheck the
+implementation is built, tested in nested sessions, and installed. After reboot
+on 2026-11-08 the patched compositor ran, and the user confirmed visible spatial
+windows after the NVIDIA BGR888 capture fix. Recheck the
 actual running compositor via `pgrep -a -x labwc` and `/proc/<pid>/exe`, not just
-`labwc --version` (PATH still selects stock `/usr/bin/labwc`). Physical acceptance
-checks after the initial patched login remain outstanding; see `docs/NATIVE.md`.
+`labwc --version` (PATH still selects stock `/usr/bin/labwc`). Physical input,
+power and recovery acceptance checks remain outstanding; see `docs/NATIVE.md`.
 Do not equate synthetic/nested test results with physical Air validation or
 completion of every design gate.
 
@@ -43,6 +44,9 @@ Run `python3 -m unittest -v`, `sh scripts/check-tracker.sh`, native build/geomet
 tests via `sh scripts/build-native.sh`, and `python3 scripts/check-native.py` for
 native changes. Build the test tools with `sh scripts/build-native-test-tools.sh`.
 Also check the feature-disabled labwc build when changing integration hooks.
+Run `AIR_NATIVE_TEST_RENDERER=gles2 python3 scripts/check-native.py` too for capture
+changes: this NVIDIA GLES renderer offers BGR888 SHM, unlike the Vulkan test path.
+Preserve three-byte pixels, padded row stride, RGB/BGR ordering and opaque alpha.
 The timestamp rebase regression fails against original upstream sensor code and
 passes with our patch; preserve it when upgrading the tracker.
 
@@ -58,6 +62,10 @@ Inspect `.local/native-install.json` for installed paths/rollback. The user's
 `~/.local/bin/start-labwc-logged` selects the frozen native session on next login;
 `~/.local/bin/air-spatial-stock` or `AIR_USE_STOCK=1` selects stock for a session.
 `restore-stock-session.py` restores the prior launcher while preserving newer edits.
+For renderer-only updates, `refresh-native-presenter.py` can redirect the running
+session's old helper launcher to the tested new release. It requires identical
+compositor hashes, backs up the launcher, and records the redirect in the install
+manifest; it never rewrites a running binary or restarts desktop clients.
 Never log out the user merely to validate a build; they must save work for the
 one initial compositor login required by the design.
 

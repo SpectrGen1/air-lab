@@ -1,6 +1,7 @@
 /* Native mono presenter for the private labwc spatial extension. */
 #define _GNU_SOURCE
 #include "air-math.h"
+#include "air-pixels.h"
 #include "ext-foreign-toplevel-list-v1-protocol.h"
 #include "ext-image-capture-source-v1-protocol.h"
 #include "ext-image-copy-capture-v1-protocol.h"
@@ -33,7 +34,7 @@ struct capture {
     struct wl_buffer *buffer;
     void *map;
     size_t bytes;
-    uint32_t width, height, format, allocated_width, allocated_height, transform;
+    uint32_t width, height, format, allocated_width, allocated_height, transform, stride;
     bool format_ok, constraints, released, ready, dirty, closed, wanted;
     char identifier[128];
     GLuint texture;
@@ -155,10 +156,11 @@ static void egl_init(struct app *a) {
     if (!eglMakeCurrent(a->egl, a->egl_surface, a->egl_surface, a->context))
         fatal("EGL context creation failed");
     eglSwapInterval(a->egl, 0);
-    const char *vert =
-        "attribute vec3 pos;attribute vec2 uv;varying vec2 tex;uniform mat3 basis;uniform float "
-        "aspect;void main(){vec3 q=basis*pos;float "
-        "t=0.363970234;gl_Position=vec4(q.x/t,q.y*aspect/t,1.002002*q.z-0.02002002,q.z);tex=uv;}";
+    const char *vert = "attribute vec3 pos;attribute vec2 uv;varying vec2 "
+                       "tex;uniform mat3 basis;uniform float "
+                       "aspect;void main(){vec3 q=basis*pos;float "
+                       "t=0.363970234;gl_Position=vec4(q.x/t,q.y*aspect/"
+                       "t,1.002002*q.z-0.02002002,q.z);tex=uv;}";
     const char *frag = "precision mediump float;varying vec2 tex;uniform sampler2D image;void "
                        "main(){vec4 c=texture2D(image,tex);if(c.a<0.01)discard;gl_FragColor=c;}";
     GLuint vs = shader(GL_VERTEX_SHADER, vert), fs = shader(GL_FRAGMENT_SHADER, frag);
@@ -182,7 +184,8 @@ static void egl_init(struct app *a) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
-static void texture(GLuint *id, const void *pixels, uint32_t w, uint32_t h, uint32_t format) {
+static void texture(GLuint *id, const void *pixels, uint32_t w, uint32_t h, uint32_t stride,
+                    uint32_t format) {
     if (!*id) {
         glGenTextures(1, id);
         glBindTexture(GL_TEXTURE_2D, *id);
@@ -196,15 +199,7 @@ static void texture(GLuint *id, const void *pixels, uint32_t w, uint32_t h, uint
     unsigned char *rgba = malloc(bytes);
     if (!rgba)
         fatal("texture allocation failed");
-    const unsigned char *src = pixels;
-    bool bgra = format == WL_SHM_FORMAT_ARGB8888 || format == WL_SHM_FORMAT_XRGB8888;
-    bool opaque = format == WL_SHM_FORMAT_XRGB8888 || format == WL_SHM_FORMAT_XBGR8888;
-    for (size_t i = 0; i < bytes; i += 4) {
-        rgba[i] = src[i + (bgra ? 2 : 0)];
-        rgba[i + 1] = src[i + 1];
-        rgba[i + 2] = src[i + (bgra ? 0 : 2)];
-        rgba[i + 3] = opaque ? 255 : src[i + 3];
-    }
+    air_pixels_rgba(rgba, pixels, w, h, stride, format);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
     free(rgba);
 }
@@ -251,7 +246,8 @@ static void capture_ready(void *d, struct ext_image_copy_capture_frame_v1 *f) {
     ext_image_copy_capture_frame_v1_destroy(f);
     c->frame = NULL;
     c->ready = true;
-    c->dirty = true; /* Upload before recycling SHM, so head turns reuse an unchanged texture. */
+    c->dirty = true; /* Upload before recycling SHM, so head turns reuse an
+                        unchanged texture. */
 }
 static void capture_failed(void *d, struct ext_image_copy_capture_frame_v1 *f, uint32_t reason) {
     struct capture *c = d;
@@ -284,9 +280,7 @@ static void session_size(void *d, struct ext_image_copy_capture_session_v1 *s, u
 static void session_format(void *d, struct ext_image_copy_capture_session_v1 *s, uint32_t format) {
     (void)s;
     struct capture *c = d;
-    if (format == WL_SHM_FORMAT_ARGB8888 ||
-        (!c->format_ok && (format == WL_SHM_FORMAT_XRGB8888 || format == WL_SHM_FORMAT_ABGR8888 ||
-                           format == WL_SHM_FORMAT_XBGR8888))) {
+    if (air_pixel_bytes(format) && (!c->format_ok || format == WL_SHM_FORMAT_ARGB8888)) {
         c->format = format;
         c->format_ok = true;
     }
@@ -308,6 +302,8 @@ static void session_done(void *d, struct ext_image_copy_capture_session_v1 *s) {
     (void)s;
     struct capture *c = d;
     c->constraints = true;
+    if (!c->format_ok)
+        fatal("capture source offers no supported SHM pixel format");
     request_capture(c);
 }
 static void session_stopped(void *d, struct ext_image_copy_capture_session_v1 *s) {
@@ -332,7 +328,8 @@ static void request_capture(struct capture *c) {
     if (!c->buffer || c->allocated_width != c->width || c->allocated_height != c->height) {
         free_buffer(c);
         c->ready = false;
-        c->bytes = (size_t)c->width * c->height * 4;
+        c->stride = air_pixel_stride(c->format, c->width);
+        c->bytes = (size_t)c->stride * c->height;
         int fd = memfd_create("air-window-capture", MFD_CLOEXEC);
         if (fd < 0 || ftruncate(fd, c->bytes) < 0)
             fatal("SHM allocation failed");
@@ -340,8 +337,7 @@ static void request_capture(struct capture *c) {
         if (c->map == MAP_FAILED)
             fatal("SHM mapping failed");
         struct wl_shm_pool *pool = wl_shm_create_pool(c->app->shm, fd, c->bytes);
-        c->buffer =
-            wl_shm_pool_create_buffer(pool, 0, c->width, c->height, c->width * 4, c->format);
+        c->buffer = wl_shm_pool_create_buffer(pool, 0, c->width, c->height, c->stride, c->format);
         wl_shm_pool_destroy(pool);
         close(fd);
         wl_buffer_add_listener(c->buffer, &buffer_listener, c);
@@ -608,7 +604,8 @@ static void update_hud(struct app *a) {
     cairo_move_to(cr, 16, 40);
     cairo_show_text(cr, a->status);
     cairo_surface_flush(surface);
-    texture(&a->hud, cairo_image_surface_get_data(surface), 1600, 64, WL_SHM_FORMAT_ARGB8888);
+    texture(&a->hud, cairo_image_surface_get_data(surface), 1600, 64, 1600 * 4,
+            WL_SHM_FORMAT_ARGB8888);
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
     a->hud_dirty = false;
@@ -643,7 +640,8 @@ static void draw(struct app *a) {
         c->wanted = true;
         start_capture(c);
         if (c->dirty) {
-            texture(&c->texture, c->map, c->allocated_width, c->allocated_height, c->format);
+            texture(&c->texture, c->map, c->allocated_width, c->allocated_height, c->stride,
+                    c->format);
             c->dirty = false;
             request_capture(c);
         }
@@ -812,7 +810,7 @@ static void receive_ipc(struct app *a) {
                 if (map != MAP_FAILED) {
                     if (!a->egl_window)
                         egl_init(a);
-                    texture(&a->cursor, map, w, h, m.data.cursor.format);
+                    texture(&a->cursor, map, w, h, w * 4, m.data.cursor.format);
                     munmap(map, bytes);
                     a->cursor_w = w;
                     a->cursor_h = h;
@@ -834,7 +832,8 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--output") && i + 1 < argc)
             name = argv[++i];
         else
-            fatal("usage: air-presenter --output NAME (requires inherited private socket)");
+            fatal("usage: air-presenter --output NAME (requires inherited private "
+                  "socket)");
     }
     const char *ipc = getenv("AIR_SPATIAL_FD"), *gen = getenv("AIR_SPATIAL_GENERATION");
     if (!name || !ipc || !gen)
@@ -859,7 +858,8 @@ int main(int argc, char **argv) {
         fatal("Wayland registry failed");
     if (!a.compositor || !a.shm || !a.shell || !a.list || !a.sources || !a.copies ||
         !a.presentation)
-        fatal("missing required Wayland capture, layer-shell or presentation protocol");
+        fatal("missing required Wayland capture, layer-shell or presentation "
+              "protocol");
     ext_foreign_toplevel_list_v1_add_listener(a.list, &list_listener, &a);
     wp_presentation_add_listener(a.presentation, &presentation_listener, &a);
     if (wl_display_roundtrip(a.display) < 0)

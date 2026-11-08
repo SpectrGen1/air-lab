@@ -62,7 +62,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
 base_env = os.environ | {'AIR_NATIVE_TEST_ID': MARKER}
 nested_env = base_env | {
     'WLR_BACKENDS': 'wayland', 'WLR_WL_OUTPUTS': '2',
-    'WLR_RENDERER': 'vulkan', 'WLR_NO_HARDWARE_CURSORS': '1',
+    'WLR_RENDERER': os.environ.get('AIR_NATIVE_TEST_RENDERER', 'vulkan'), 'WLR_NO_HARDWARE_CURSORS': '1',
     'AIR_SPATIAL_HELPER': str(ROOT / 'scripts/start-native-presenter.py'), 'AIR_SPATIAL_OUTPUT': 'WL-2',
     'AIR_NATIVE_RENDERER': str(HELPER), 'AIR_TRACKER_READY_FILE': str(RUN / 'tracker.json'),
     'AIR_SPATIAL_POWER': '1', 'AIR_SPATIAL_UDP_PORT': str(port),

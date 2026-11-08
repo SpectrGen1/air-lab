@@ -88,9 +88,16 @@ killing the editor. Six Python bridge/launcher tests, the tracker timestamp
 regression, and the native geometry test pass. Enabled/disabled labwc feature
 builds are checked. Evidence and binary hashes are in `.local/native-check/`.
 
-The next-login launcher is staged with immutable local binaries and a stock
-fallback. The current running compositor has not been restarted. The required
-initial login into patched labwc is therefore still a user action. Actual Air
+The login launcher is installed with frozen local binaries and a stock
+fallback. After reboot on 2026-11-08, the installed compositor was verified running.
+The first physical preview showed only its status line: NVIDIA GLES advertised
+24-bit BGR888 SHM captures, while the presenter only accepted four-byte formats.
+The fix supports three-byte pixels and padded row strides, with color/alpha
+regressions and a full passing GLES integration run in addition to Vulkan.
+The renderer-only update was applied to the running session's next helper spawn;
+the compositor and desktop applications were preserved. The user confirmed that
+windows now appear in the glasses after recentering. This establishes physical
+native visibility, not completion of input/power/recovery acceptance. Actual Air
 sleep/wake/unplug, ordinary workloads, long-running video, ten-minute drift and
 optical readability still need physical acceptance after that login. Do not
 convert the nested test's results into claims of physical hardware validation.
