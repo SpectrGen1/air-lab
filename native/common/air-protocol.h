@@ -19,7 +19,8 @@ enum air_type {
     AIR_RECENTER,
     AIR_SHUTDOWN,
     AIR_STATUS,
-    AIR_CURSOR
+    AIR_CURSOR,
+    AIR_FRAME_PRESENTED
 };
 struct air_panel {
     uint64_t id;
@@ -44,6 +45,9 @@ struct air_packet {
         struct {
             uint32_t width, height;
         } ready;
+        struct {
+            uint32_t complete;
+        } frame;
         struct {
             uint32_t width, height, hot_x, hot_y, format;
             float scale;

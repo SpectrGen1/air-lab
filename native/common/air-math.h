@@ -67,6 +67,20 @@ static inline void abasis(double yaw, double pitch, double roll, double out[9]) 
 static inline struct air_vec abaxis(const double b[9], int i) {
     return av(b[3 * i], b[3 * i + 1], b[3 * i + 2]);
 }
+/* Both rendering and compositor picking consume this same camera basis. A
+ * desktop-level horizon is deliberate; full physical roll remains opt-in. */
+static inline void arelative_basis(const double raw[9], const double zero[9], bool head_roll,
+                                  double out[9]) {
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            out[i * 3 + j] = adot(abaxis(raw, i), abaxis(zero, j));
+    if (!head_roll) {
+        double yaw = hypot(out[6], out[8]) > 1e-6 ? atan2(out[6], out[8])
+                                                : atan2(-out[2], out[0]);
+        double pitch = atan2(out[7], hypot(out[6], out[8]));
+        abasis(yaw, pitch, 0, out);
+    }
+}
 static inline bool avisible(struct air_vec q, const double basis[9], double aspect) {
     double z = adot(q, abaxis(basis, 2));
     double t = tan(40 * AIR_PI / 360);

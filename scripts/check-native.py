@@ -132,7 +132,26 @@ try:
         control('chord', 1)
         wait_for(lambda: 'WL-1 on' in power(), 'physical output restoration')
 
-    enter(True)
+    soak = float(os.environ.get('AIR_NATIVE_TEST_SOAK', '0'))
+    if soak:
+        control('chord', 45)
+        wait_for(lambda: 'air presenter: native mono' in logs(), 'long preview startup')
+        started = time.monotonic()
+        while time.monotonic() - started < soak:
+            assert not 'restoring desktop' in logs(), 'healthy preview exited during soak'
+            time.sleep(.25)
+        assert 'WL-1 on' in power() and 'WL-2 on' in power()
+        print(f'PASS: healthy preview stays open for {soak:g}s without sleeping monitors', flush=True)
+        control('chord', 28)
+        wait_for(lambda: 'SPATIAL |' in logs(), 'long active session entry')
+        started = time.monotonic()
+        while time.monotonic() - started < soak:
+            assert not 'restoring desktop' in logs(), 'healthy spatial mode exited during soak'
+            time.sleep(.25)
+        assert 'WL-1 off' in power() and 'WL-2 on' in power()
+        print(f'PASS: active spatial mode stays open for {soak:g}s with monitors sleeping', flush=True)
+    else:
+        enter(True)
     control('motion', 0, 0, 'button', 272, 1, 'button', 272, 0, 'key', 30)
     wait_for(lambda: any(e['kind'] == 'text' and e['value'].endswith('a') for e in events()), 'typing into original editor')
     print('PASS: original editor receives real seat clicks/keys with its flat output sleeping', flush=True)

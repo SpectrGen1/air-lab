@@ -92,6 +92,10 @@ def main():
         for key in ('live_tracker', 'live_helper_redirect'):
             if key in prior:
                 config[key] = prior[key]
+        config['panel_scale'] = prior.get('panel_scale', 2 / 3)
+        config['head_roll'] = prior.get('head_roll', False)
+    else:
+        config.update(panel_scale=2 / 3, head_roll=False)
     install_config.write_text(json.dumps(config, indent=2) + '\n')
     temp.replace(entrypoint)
     fallback = Path.home() / '.local/bin/air-spatial-stock'

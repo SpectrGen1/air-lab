@@ -22,6 +22,22 @@ int main(void){
   assert(aplane(&p,aray(.1,.03),&x,&y,&t));near(x,old_x);near(y,old_y);
  }
  double basis[9];abasis(0,0,0,basis);assert(avisible(av(0,0,1.4),basis,16./9));abasis(AIR_PI/2,0,0,basis);assert(!avisible(av(0,0,1.4),basis,16./9));
+
+ /* Recenter from a tilted neutral pose; desktop leveling must remove roll
+  * without changing forward direction, yaw/pitch signs or pointer geometry. */
+ double zero[9], raw[9], relative[9], level[9];
+ abasis(.4,-.2,.35,zero);arelative_basis(zero,zero,true,relative);
+ for(int i=0;i<9;i++)near(relative[i],i%4==0?1:0);
+ abasis(-.7,.25,.4,raw);arelative_basis(raw,zero,true,relative);
+ arelative_basis(raw,zero,false,level);
+ for(int i=6;i<9;i++)near(level[i],relative[i]);
+ near(level[1],0);assert(level[4]>0);
+ abasis(0,0,0,zero);
+ for(int i=-10;i<=10;i++){
+  double yaw=i*.1;abasis(yaw,.1,.3,raw);arelative_basis(raw,zero,false,level);
+  near(atan2(level[6],level[8]),yaw);near(atan2(level[7],hypot(level[6],level[8])),.1);
+  near(level[1],0);assert(level[4]>0);
+ }
  assert(sizeof(struct air_packet)<1024);
  puts("PASS: independent head/pointer geometry, full seam, rear/parallel rays, unbounded grabs, fractional popup coordinates and transient offsets");return 0;
 }

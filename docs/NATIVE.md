@@ -49,6 +49,24 @@ in the same compositor can activate automatically after a healthy preview;
 a second toggle during arming still cancels it. Locking always exits spatial
 mode, and unlocking does not re-enter it. Re-entry requires the explicit toggle.
 
+A healthy preview and active spatial session have no duration limit. The
+two-minute timeout applies only while the presenter has not started. A lost pose
+feed (700 ms) or stalled presentation (one second) still returns to the desktop;
+these are recovery checks, not test-session timers. Logs distinguish those
+causes. Actual presentation feedback maintains liveness even while a window is
+being recaptured. Incomplete capture invalidates click eligibility until the
+matching complete scene is presented, rather than expiring the entire session.
+
+Panels now default to two-thirds of the original physical width/height; their
+original desktop rectangles and resolution remain unchanged. The desktop camera
+defaults to a level horizon: yaw/pitch turn the viewpoint, while reported roll is
+excluded after neutral-frame conversion. This is a viewing preference, not a
+claim that the physical sensor axes were recalibrated. Full head roll remains
+available. `.local/native-install.json` records `panel_scale` (default 2/3,
+accepted range 0.25–2) and `head_roll` (default false); both apply at login.
+This compositor update requires one saved-work logout/login; refreshing only the
+renderer cannot change panel geometry or picking in an already-running labwc.
+
 Alt+Tab changes focus but does not bring the selected panel into the viewing
 direction. Turn toward its position or use Super+Alt+Left/Right to move it.
 Face forward and use Super+Alt+R if the neutral view was set while the Air rested
@@ -79,6 +97,9 @@ are allowed separately for disposable nested tests.
   The NVIDIA GLES path advertises 24-bit BGR888; conversion supports RGB888/BGR888
   with explicit padded row stride as well as four-byte formats. Unsupported SHM
   formats produce an error and recovery, rather than a silent black preview.
+  Frame ready/failed events complete buffer ownership; image-copy capture does
+  not use `wl_buffer.release`. Constraint failures can reallocate/retry without
+  stalling the capture stream.
 - **Input** intersects the world cylinder ray with panel planes in labwc, then
   uses the particular capture group's scene subtree to find the real surface
   and its input region. The ordinary seat path receives child-local coordinates.
@@ -152,6 +173,8 @@ python3 -m unittest -v
 sh scripts/check-tracker.sh
 python3 scripts/check-native.py
 AIR_NATIVE_TEST_RENDERER=gles2 python3 scripts/check-native.py
+# Longer optional check: 130 seconds each in preview and active mode.
+AIR_NATIVE_TEST_RENDERER=gles2 AIR_NATIVE_TEST_SOAK=130 python3 scripts/check-native.py
 ```
 
 Existing workstation dependencies were sufficient; no packages were installed.

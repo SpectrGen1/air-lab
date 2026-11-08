@@ -120,7 +120,7 @@ clicks/typing, animation with its flat output asleep, head-only input independen
 offscreen click protection, unbounded selection/release, scale 1.25, transient
 dialogs, lock blanking/re-entry, frozen-helper escape with one matching release,
 stale feed recovery, hung helper recovery, and simulated output disconnect without
-killing the editor. Seven Python bridge/launcher/handoff tests, the tracker timestamp
+killing the editor. Eight Python bridge/capture/launcher/handoff tests, the tracker timestamp
 regression, and the native geometry test pass. Enabled/disabled labwc feature
 builds are checked. Evidence and binary hashes are in `.local/native-check/`.
 
@@ -143,3 +143,35 @@ gates, with explicit desktop fallbacks for the currently recognized unsupported
 gestures. DMA-BUF optimization, stereo and DRM lease are separate later work.
 No remote or push destination has been configured; project licensing still needs
 selection before distribution. Upstream dependencies retain their licenses.
+
+## Size, session duration and horizon feedback
+
+On 2026-11-08 the user reported panels about 50% too large, short preview/active
+sessions, and sideways window tilt during horizontal head turns. The new default
+panel scale is 2/3 of the earlier physical width/height, applied in the compositor
+to root panels and transients so rendering/picking agree. Canonical desktop
+rectangles remain unchanged. A user-guided forward/left comparison showed mostly
+yaw with several degrees of reported roll. The new default camera deliberately
+removes relative roll while preserving the forward vector; full roll is an
+opt-in preference, not a claimed sensor-axis calibration.
+
+Healthy previews previously hit an unconditional two-minute ARMING deadline.
+The revised deadline covers startup only. Actual presented-frame liveness is
+separate from a complete scene acknowledgment, so recapturing a window revokes
+click eligibility without pretending that the renderer has stopped. Source review
+also found the presenter waiting for `wl_buffer.release` after capture: the
+image-copy protocol explicitly does not use that event. Ready/failed now complete
+buffer ownership, allowing resize-constraint failures to reallocate/retry. A
+hardware-free test compiles those actual completion handlers; it fails against
+the prior implementation. Pose/presentation loss watchdogs remain enabled and
+now log distinct causes. These compositor changes require a new login; the old
+running session is not hot-replaced.
+
+The NVIDIA GLES integration run kept a healthy preview open for 130 seconds,
+then active mode for another 130 seconds with its other output asleep. Original
+editor input, animation, head/pointer independence, lock, escape, lost tracking,
+reference reset, frozen renderer and output disconnect all passed afterward.
+Evidence is `.local/native-check/1794156937630873426/`. This demonstrates the
+removed duration limit in a nested session, not physical long-session acceptance
+of the new defaults. The current production compositor remains the earlier
+binary until the user saves work and logs in again.

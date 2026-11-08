@@ -16,6 +16,18 @@ power and recovery acceptance checks remain outstanding; see `docs/NATIVE.md`.
 Do not equate synthetic/nested test results with physical Air validation or
 completion of every design gate.
 
+The smaller-panel/persistent-preview/level-horizon update changes labwc itself;
+it requires a fresh login to activate. Keep both sides' geometry consistent—do
+not scale only the renderer to simulate changing panel size in the old session.
+`panel_scale` defaults to 2/3; `head_roll` defaults false. The latter deliberately
+levels the camera horizon after neutral conversion, not a sensor-axis correction.
+`AIR_FRAME_PRESENTED` reports actual scanout liveness separately from a complete
+scene acknowledgment; incomplete scenes revoke new-click eligibility. A healthy
+preview has no session-duration timeout. Feed/renderer watchdogs still apply.
+Image-copy capture does not use `wl_buffer.release`: ready/failed completes
+ownership. Preserve the completion-handler regression in `test_capture_completion.py`;
+otherwise a resize failure can strand a buffer and stop subsequent captures.
+
 ## Layout
 
 - `native/common/`: shared private protocol and world-space math.
@@ -47,6 +59,8 @@ Also check the feature-disabled labwc build when changing integration hooks.
 Run `AIR_NATIVE_TEST_RENDERER=gles2 python3 scripts/check-native.py` too for capture
 changes: this NVIDIA GLES renderer offers BGR888 SHM, unlike the Vulkan test path.
 Preserve three-byte pixels, padded row stride, RGB/BGR ordering and opaque alpha.
+`AIR_NATIVE_TEST_SOAK=130` checks more than two minutes each in healthy preview
+and active mode; it can be combined with `AIR_NATIVE_TEST_RENDERER=gles2`.
 The timestamp rebase regression fails against original upstream sensor code and
 passes with our patch; preserve it when upgrading the tracker.
 

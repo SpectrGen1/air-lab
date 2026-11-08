@@ -207,10 +207,10 @@ static void texture(GLuint *id, const void *pixels, uint32_t w, uint32_t h, uint
 }
 static void request_capture(struct capture *c);
 static void buffer_release(void *data, struct wl_buffer *buffer) {
+    (void)data;
     (void)buffer;
-    struct capture *c = data;
-    c->released = true;
-    request_capture(c);
+    /* Image-copy capture explicitly does not use wl_buffer.release. Its
+     * ready/failed events complete ownership of each requested frame. */
 }
 static const struct wl_buffer_listener buffer_listener = {.release = buffer_release};
 static void free_buffer(struct capture *c) {
@@ -247,6 +247,7 @@ static void capture_ready(void *d, struct ext_image_copy_capture_frame_v1 *f) {
     struct capture *c = d;
     ext_image_copy_capture_frame_v1_destroy(f);
     c->frame = NULL;
+    c->released = true;
     c->ready = true;
     c->dirty = true; /* Upload before recycling SHM, so head turns reuse an
                         unchanged texture. */
@@ -255,6 +256,7 @@ static void capture_failed(void *d, struct ext_image_copy_capture_frame_v1 *f, u
     struct capture *c = d;
     ext_image_copy_capture_frame_v1_destroy(f);
     c->frame = NULL;
+    c->released = true;
     c->ready = false;
     if (reason == EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_STOPPED)
         c->closed = true;
@@ -536,6 +538,11 @@ static void feedback_presented(void *d, struct wp_presentation_feedback *f, uint
     (void)slo;
     (void)flags;
     struct frame_feedback *p = d;
+    struct air_packet frame = {.type = AIR_FRAME_PRESENTED,
+                               .epoch = p->epoch,
+                               .stamp_ns = (((uint64_t)hi << 32) | lo) * 1000000000ULL + ns};
+    frame.data.frame.complete = p->healthy;
+    packet(p->app, &frame);
     if (p->healthy) {
         struct air_packet m = {.type = AIR_PRESENTED,
                                .epoch = p->epoch,
@@ -713,9 +720,9 @@ static void update_basis(struct app *a) {
         memcpy(a->zero, a->raw, sizeof(a->zero));
         a->zero_valid = true;
     }
-    for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++)
-            a->basis[i * 3 + j] = adot(abaxis(a->raw, i), abaxis(a->zero, j));
+    bool head_roll = getenv("AIR_SPATIAL_HEAD_ROLL") &&
+                     !strcmp(getenv("AIR_SPATIAL_HEAD_ROLL"), "1");
+    arelative_basis(a->raw, a->zero, head_roll, a->basis);
 }
 static void receive_pose(struct app *a) {
     unsigned char buf[1024];

@@ -60,6 +60,8 @@ def main():
         'AIR_SPATIAL_OUTPUT': config['output'],
         'AIR_SPATIAL_UDP_PORT': str(config.get('udp_port', 4243)),
         'AIR_SPATIAL_POWER': '1' if config.get('power', False) else '0',
+        'AIR_SPATIAL_PANEL_SCALE': str(config.get('panel_scale', 2 / 3)),
+        'AIR_SPATIAL_HEAD_ROLL': '1' if config.get('head_roll', False) else '0',
     }
     parent_pid = os.getpid()
 

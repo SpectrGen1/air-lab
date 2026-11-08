@@ -77,6 +77,7 @@ static struct {
     int noutputs;
     char target_name[128];
 } xr = {.fd = -1};
+static double panel_scale = 2.0 / 3.0;
 
 static uint64_t now_ns(void) {
     struct timespec t;
@@ -263,7 +264,7 @@ static bool scene_update(void) {
         p->by = box.y;
         p->bw = box.width;
         p->bh = box.height;
-        p->metres_per_pixel = fmin(.0009, 1.3 / fmax(1, p->width));
+        p->metres_per_pixel = panel_scale * fmin(.0009, 1.3 / fmax(1, p->width));
         struct view *parent = v->impl->get_parent ? v->impl->get_parent(v) : NULL;
         struct view *root = v;
         int depth = 0;
@@ -285,7 +286,7 @@ static bool scene_update(void) {
         p->elevation = xr.poses[root_pose].height;
         p->distance = AIR_RADIUS - depth * .005;
         if (parent) {
-            p->metres_per_pixel = fmin(.0009, 1.3 / fmax(1, root->current.width));
+            p->metres_per_pixel = panel_scale * fmin(.0009, 1.3 / fmax(1, root->current.width));
             p->azimuth = awrap(p->azimuth + xr.poses[i].angle);
             p->elevation += xr.poses[i].height + (root->current.y + root->current.height * .5 -
                                                   v->current.y - v->current.height * .5) *
@@ -642,7 +643,19 @@ static int socket_read(int fd, uint32_t mask, void *data) {
         if (m.type == AIR_READY) {
             xr.aspect =
                 m.data.ready.height ? (double)m.data.ready.width / m.data.ready.height : 16. / 9;
+            if (!xr.ready) {
+                xr.heartbeat = now_ns();
+                if (!xr.pose_stamp)
+                    xr.pose_stamp = xr.heartbeat;
+            }
             xr.ready = true;
+        } else if (m.type == AIR_FRAME_PRESENTED && m.stamp_ns <= now_ns() &&
+                   now_ns() - m.stamp_ns < 250000000) {
+            xr.heartbeat = m.stamp_ns;
+            /* A live scanout may contain a window still being recaptured. Keep
+             * recovery liveness separate from permission to click that scene. */
+            if (m.epoch == xr.epoch && !m.data.frame.complete)
+                xr.ack = 0;
         } else if (m.type == AIR_PRESENTED && m.epoch == xr.epoch && m.stamp_ns <= now_ns() &&
                    now_ns() - m.stamp_ns < 250000000) {
             bool new_revision = xr.ack != m.epoch;
@@ -807,10 +820,14 @@ static int tick(void *data) {
         return 0;
     }
     uint64_t now = now_ns();
-    if ((xr.mode == SPATIAL &&
-         (now - xr.pose_stamp > 700000000 || now - xr.heartbeat > 1000000000)) ||
-        (xr.mode == ARMING && now - xr.started > 120000000000ULL)) {
-        air_spatial_stop("tracking or presentation watchdog expired");
+    if ((xr.mode == SPATIAL || (xr.mode == ARMING && xr.ready)) &&
+        (now - xr.pose_stamp > 700000000 || now - xr.heartbeat > 1000000000)) {
+        air_spatial_stop(now - xr.pose_stamp > 700000000 ? "tracking watchdog expired"
+                                                       : "presentation watchdog expired");
+        return 0;
+    }
+    if (xr.mode == ARMING && !xr.ready && now - xr.started > 120000000000ULL) {
+        air_spatial_stop("preview startup timed out");
         return 0;
     }
     scene_update();
@@ -990,6 +1007,13 @@ bool air_spatial_cursor(struct wlr_surface *surface, int hx, int hy) {
 void air_spatial_init(void) {
     xr.enabled = getenv("AIR_SPATIAL_HELPER") != NULL;
     xr.power = getenv("AIR_SPATIAL_POWER") && !strcmp(getenv("AIR_SPATIAL_POWER"), "1");
+    const char *scale = getenv("AIR_SPATIAL_PANEL_SCALE");
+    if (scale) {
+        char *end;
+        double value = strtod(scale, &end);
+        if (*end == '\0' && isfinite(value) && value >= .25 && value <= 2)
+            panel_scale = value;
+    }
     if (xr.enabled) {
         xr.timer = wl_event_loop_add_timer(server.wl_event_loop, tick, NULL);
         wl_event_source_timer_update(xr.timer, 16);

@@ -8,6 +8,9 @@ The native labwc integration is built and tested; its session launcher is staged
 for the next login. Save your work, log out once, and log back in to activate it.
 Subsequent spatial toggles keep your existing applications connected to the same
 labwc. Leave the Air motionless for one minute after login/reconnection.
+The latest compositor update uses smaller panels and a level horizon, and keeps
+a healthy preview open without a session timer. It requires a new login to take
+effect; actual feed loss or renderer failure still restores the desktop.
 
 - **Super+Alt+X**: preview/toggle; **Super+Alt+Return**: confirm first entry and sleep monitors.
 - **Super+Alt+Escape**: force desktop; **Super+Alt+R**: recenter; **Super+Alt+F**: summon pointer.
