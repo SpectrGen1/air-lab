@@ -1128,7 +1128,10 @@ bool air_spatial_key(struct wlr_keyboard *kb, struct wlr_keyboard_key_event *ev)
         xr.theta = atan2(f.x, f.z);
         xr.height = aclamp(AIR_RADIUS * f.y / fmax(.001, hypot(f.x, f.z)), -1.2, 1.2);
         pointer_packet();
-        cursor_update_focus();
+        double sx, sy;
+        if (cursor_process_motion(now_ns() / 1000000, &sx, &sy))
+            wlr_seat_pointer_notify_motion(server.seat.wlr_seat, now_ns() / 1000000, sx, sy);
+        wlr_seat_pointer_notify_frame(server.seat.wlr_seat);
     } else if ((key == KEY_LEFT || key == KEY_RIGHT || key == KEY_UP || key == KEY_DOWN) &&
                xr.mode == SPATIAL) {
         struct view *v = server.active_view;

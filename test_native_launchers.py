@@ -15,6 +15,35 @@ ROOT = Path(__file__).resolve().parent
 
 
 class TestNativeLaunchers(unittest.TestCase):
+    def test_ready_notifications_follow_warmup_and_reconnection(self):
+        spec = importlib.util.spec_from_file_location('native_session', ROOT / 'scripts/start-native-desktop.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        messages = []
+        notifications = module.TrackerNotifications(messages.append)
+        state = dict(connected=True, calibrated=False, source_port=None, ready_at=60, pid=1)
+        notifications.observe(state, 0)
+        self.assertEqual(len(messages), 1)
+        state.update(calibrated=True, source_port=12345)
+        notifications.observe(state, 59)
+        self.assertEqual(len(messages), 1)
+        state.update(source_port=None)
+        notifications.observe(state, 60)
+        self.assertEqual(len(messages), 1)
+        state.update(source_port=12345)
+        notifications.observe(state, 60)
+        notifications.observe(state, 90)
+        self.assertEqual(len(messages), 2)
+        self.assertIn('Glasses ready', messages[-1])
+        notifications.observe(dict(connected=False), 91)
+        state.update(ready_at=151, calibrated=False)
+        notifications.observe(state, 91)
+        notifications.observe(state, 160)
+        self.assertEqual(len(messages), 3)
+        state.update(calibrated=True)
+        notifications.observe(state, 161)
+        self.assertEqual(len(messages), 4)
+
     def test_tracker_lock_prevents_reconfiguring_running_reader(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

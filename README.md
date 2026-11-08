@@ -7,7 +7,8 @@ A native spatial desktop integration and a retained browser interaction study fo
 The native labwc integration is built and tested; its session launcher is staged
 for the next login. Save your work, log out once, and log back in to activate it.
 Subsequent spatial toggles keep your existing applications connected to the same
-labwc. Leave the Air motionless for one minute after login/reconnection.
+labwc. Leave the Air motionless after login/reconnection until the **Glasses ready**
+notification appears (at least one minute after connection).
 The latest compositor update uses smaller panels and a level horizon, and keeps
 a healthy preview open without a session timer. It requires a new login to take
 effect; actual feed loss or renderer failure still restores the desktop.

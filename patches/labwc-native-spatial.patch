@@ -63,7 +63,7 @@ index 5d7d050..7071a66 100644
  	if (wlr_seat_validate_pointer_grab_serial(
  			seat->wlr_seat, event->origin, event->serial)) {
 diff --git a/src/input/cursor.c b/src/input/cursor.c
-index 5a169bd..c6e95a3 100644
+index 5a169bd..49894f3 100644
 --- a/src/input/cursor.c
 +++ b/src/input/cursor.c
 @@ -1,5 +1,6 @@
@@ -165,7 +165,7 @@ index 5a169bd..c6e95a3 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits an
  	 * _absolute_ motion event, from 0..1 on each axis. This happens, for
-@@ -1171,6 +1193,10 @@ static uint32_t press_msec;
+@@ -1171,7 +1193,20 @@ static uint32_t press_msec;
  bool
  cursor_process_button_press(struct seat *seat, uint32_t button, uint32_t time_msec)
  {
@@ -174,9 +174,19 @@ index 5a169bd..c6e95a3 100644
 +		return false;
 +	}
  	struct cursor_context ctx = get_cursor_context();
++	if (air_spatial_active() && ctx.surface) {
++		/* A spatial scene change or explicit summon can change local coordinates
++		 * without a physical motion. Deliver that position before its button. */
++		cursor_update_focus();
++		if (seat->wlr_seat->pointer_state.focused_surface == ctx.surface) {
++			wlr_seat_pointer_notify_motion(seat->wlr_seat, time_msec, ctx.sx, ctx.sy);
++		}
++	}
++
  
  	/* Used on next button release to check if it can close menu or select menu item */
-@@ -1318,6 +1344,8 @@ cursor_finish_button_release(struct seat *seat, uint32_t button)
+ 	press_msec = time_msec;
+@@ -1318,6 +1353,8 @@ cursor_finish_button_release(struct seat *seat, uint32_t button)
  static void
  handle_button(struct wl_listener *listener, void *data)
  {
@@ -185,7 +195,7 @@ index 5a169bd..c6e95a3 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits a button
  	 * event.
-@@ -1326,6 +1354,7 @@ handle_button(struct wl_listener *listener, void *data)
+@@ -1326,6 +1363,7 @@ handle_button(struct wl_listener *listener, void *data)
  	struct wlr_pointer_button_event *event = data;
  	idle_manager_notify_activity(seat->wlr_seat);
  	cursor_set_visible(seat, /* visible */ true);
@@ -193,7 +203,7 @@ index 5a169bd..c6e95a3 100644
  
  	bool notify;
  	switch (event->state) {
-@@ -1402,6 +1431,9 @@ static bool
+@@ -1402,6 +1440,9 @@ static bool
  process_cursor_axis(enum wl_pointer_axis orientation,
  		double delta, double delta_discrete)
  {
@@ -203,7 +213,7 @@ index 5a169bd..c6e95a3 100644
  	struct cursor_context ctx = get_cursor_context();
  	uint32_t modifiers = keyboard_get_all_modifiers(&server.seat);
  
-@@ -1465,6 +1497,8 @@ process_cursor_axis(enum wl_pointer_axis orientation,
+@@ -1465,6 +1506,8 @@ process_cursor_axis(enum wl_pointer_axis orientation,
  static void
  handle_axis(struct wl_listener *listener, void *data)
  {
@@ -212,7 +222,7 @@ index 5a169bd..c6e95a3 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits an axis
  	 * event, for example when you move the scroll wheel.
-@@ -1473,6 +1507,7 @@ handle_axis(struct wl_listener *listener, void *data)
+@@ -1473,6 +1516,7 @@ handle_axis(struct wl_listener *listener, void *data)
  	struct wlr_pointer_axis_event *event = data;
  	idle_manager_notify_activity(seat->wlr_seat);
  	cursor_set_visible(seat, /* visible */ true);
@@ -448,6 +458,39 @@ index 21005f2..49c10bd 100644
  	assert(view);
  
  	wl_signal_emit_mutable(&view->events.destroy, NULL);
+diff --git a/src/xdg-popup.c b/src/xdg-popup.c
+index 7ca9ab0..6adb71b 100644
+--- a/src/xdg-popup.c
++++ b/src/xdg-popup.c
+@@ -9,6 +9,7 @@
+ 
+ #include <wlr/types/wlr_scene.h>
+ #include <wlr/types/wlr_xdg_shell.h>
++#include "air-spatial.h"
+ #include "common/macros.h"
+ #include "common/mem.h"
+ #include "labwc.h"
+@@ -30,6 +31,20 @@ static void
+ popup_unconstrain(struct xdg_popup *popup)
+ {
+ 	struct view *view = popup->parent_view;
++	if (air_spatial_active()) {
++		/* Physical primary outputs may be asleep. Their usable area must not
++		 * collapse or displace a popup belonging to a spatially visible client. */
++		struct wlr_xdg_surface *surface = xdg_surface_from_view(view);
++		struct wlr_box bounds = {
++			.x = surface ? surface->current.geometry.x : 0,
++			.y = surface ? surface->current.geometry.y : 0,
++			.width = view->current.width,
++			.height = view->current.height,
++		};
++		wlr_xdg_popup_unconstrain_from_box(popup->wlr_popup, &bounds);
++		return;
++	}
++
+ 
+ 	/* Get position of parent toplevel/popup */
+ 	int parent_lx, parent_ly;
 diff --git a/src/xdg.c b/src/xdg.c
 index 3c62b52..6a7140f 100644
 --- a/src/xdg.c

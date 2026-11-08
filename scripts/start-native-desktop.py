@@ -37,6 +37,44 @@ def tracker_source_port(pid):
         return None
 
 
+class TrackerNotifications:
+    """Announce each connection's warmup and ready transition, even without a preview."""
+    def __init__(self, send=None):
+        self.send = send or self.notify
+        self.connection = None
+        self.announced_ready = False
+
+    @staticmethod
+    def notify(body):
+        if os.environ.get('AIR_NATIVE_TEST_ID'):
+            return
+        try:
+            subprocess.run(['notify-send', '-a', 'Air Spatial Lab', '-t', '8000',
+                            'Air spatial mode', body], check=False, timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+    def observe(self, state, now):
+        if not state.get('connected'):
+            self.connection = None
+            self.announced_ready = False
+            return
+        connection = (state.get('pid'), state.get('ready_at'))
+        ready = (state.get('calibrated') and state.get('source_port')
+                 and now >= state.get('ready_at', float('inf')))
+        if connection != self.connection:
+            self.connection = connection
+            self.announced_ready = False
+            if not ready:
+                self.send('Leave the glasses motionless on a table for one minute. '
+                          'You will be notified when tracking is ready.')
+        if ready and not self.announced_ready:
+            self.send('Glasses ready. Calibration and the one-minute warmup are complete. '
+                      'Put them on; once the preview is visible, face forward and '
+                      'press Super+Alt+R to recenter.')
+            self.announced_ready = True
+
+
 def main():
     if os.environ.get('AIR_USE_STOCK') == '1':
         os.execv('/usr/bin/labwc', ['/usr/bin/labwc', *sys.argv[1:]])
@@ -89,11 +127,13 @@ def main():
         ready_at = 0
         last_state = None
         tail = b''
+        notifications = TrackerNotifications()
         while compositor.poll() is None:
             try:
                 with log_path.open('rb') as stream:
                     if log_path.stat().st_size < offset:
                         offset = 0
+                        tail = b''
                         connected = calibrated = False
                     stream.seek(offset)
                     data = stream.read()
@@ -106,13 +146,14 @@ def main():
                         ready_at = time.monotonic() + 60
                     elif b'Device calibration complete' in line:
                         calibrated = True
-                    elif b'Waiting for glasses' in line:
+                    elif b'Waiting for glasses' in line or b'Retrying driver connection' in line:
                         connected = calibrated = False
             except FileNotFoundError:
                 pass
             state = {'connected': connected and tracker.poll() is None,
                      'calibrated': calibrated, 'ready_at': ready_at, 'pid': tracker.pid,
                      'source_port': tracker_source_port(tracker.pid) if tracker.poll() is None else None}
+            notifications.observe(state, time.monotonic())
             if state != last_state:
                 tmp = ready_file.with_suffix('.tmp')
                 tmp.write_text(json.dumps(state))

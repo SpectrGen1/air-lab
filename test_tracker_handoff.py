@@ -51,7 +51,7 @@ class TestTrackerHandoff(unittest.TestCase):
                                      + 'Path(' + repr(str(ready)) + ').write_text(json.dumps({"pid":t.pid}))\n'
                                      'print(c.pid,t.pid,flush=True)\n'
                                      'try:c.wait()\nfinally:\n t.terminate();t.wait()\n')
-            env = os.environ | {'AIR_LAB_ROOT': str(root), 'AIR_TRACKER_READY_FILE': str(ready)}
+            env = os.environ | {'AIR_LAB_ROOT': str(root), 'AIR_TRACKER_READY_FILE': str(ready), 'AIR_NATIVE_TEST_ID': str(root)}
             # An unrelated process must survive both the handoff and compositor exit.
             unrelated = subprocess.Popen(['/bin/sleep', '30'])
             parent = subprocess.Popen([sys.executable, str(parent_script)], env=env, stdout=subprocess.PIPE, text=True)

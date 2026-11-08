@@ -65,7 +65,9 @@ int main(int argc, char **argv) {
     xkb_keymap_unref(map);
     xkb_context_unref(ctx);
     wl_display_roundtrip(display);
-    uint32_t t = 1000;
+    struct timespec clock;
+    clock_gettime(CLOCK_MONOTONIC, &clock);
+    uint32_t t = (uint32_t)((uint64_t)clock.tv_sec * 1000 + clock.tv_nsec / 1000000);
     for (int i = 1; i < argc;) {
         if (!strcmp(argv[i], "motion") && i + 2 < argc) {
             double dx = atof(argv[i + 1]), dy = atof(argv[i + 2]);
@@ -101,7 +103,9 @@ int main(int argc, char **argv) {
             i += 2;
         } else
             return 2;
-        t += 10;
+        clock_gettime(CLOCK_MONOTONIC, &clock);
+        uint32_t current = (uint32_t)((uint64_t)clock.tv_sec * 1000 + clock.tv_nsec / 1000000);
+        t = (int32_t)(current - t) > 0 ? current : t + 1;
         wl_display_roundtrip(display);
     }
     wl_display_disconnect(display);

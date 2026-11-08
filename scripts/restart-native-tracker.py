@@ -106,6 +106,7 @@ def supervise():
     connected = calibrated = False
     ready_at = 0
     tail = b''
+    notifications = module.TrackerNotifications()
     temp = ready.with_name('tracker.handoff.tmp')
     try:
         while child.poll() is None and not lifetime.poll(200):
@@ -130,6 +131,7 @@ def supervise():
                         connected = calibrated = False
             state = {'connected': connected, 'calibrated': calibrated, 'ready_at': ready_at,
                      'pid': child.pid, 'source_port': module.tracker_source_port(child.pid)}
+            notifications.observe(state, time.monotonic())
             # The old supervisor may publish its dead child's state once when
             # these shared log events arrive. Republish the live owner's state;
             # a competing false state can only delay readiness, never enable it.

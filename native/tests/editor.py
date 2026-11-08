@@ -35,6 +35,13 @@ def keypress(widget,e):
   dialog.connect('response',lambda d,response:(emit('dialog-closed'),d.destroy()))
   dialog.show_all();emit('dialog-ready');return True
  return False
+def populate_menu(widget,menu):
+ item=Gtk.MenuItem(label='Spatial context action')
+ item.connect('activate',lambda widget:emit('context-action'))
+ menu.prepend(item);item.show()
+ menu.connect('deactivate',lambda menu:emit('context-closed'))
+ GLib.idle_add(lambda:(emit('context-ready',rect=[item.get_allocation().x,item.get_allocation().y,item.get_allocation().width,item.get_allocation().height]),False)[1])
+t.connect('populate-popup',populate_menu)
 t.connect('key-press-event',keypress)
 t.get_buffer().connect('changed',lambda b:emit('text',value=b.get_text(b.get_start_iter(),b.get_end_iter(),True)))
 w.connect('destroy',Gtk.main_quit);w.show_all();emit('ready');Gtk.main()

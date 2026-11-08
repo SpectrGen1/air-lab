@@ -206,6 +206,22 @@ try:
     print('PASS: viewport-calibrated mouse gain and live sensitivity controls target the expected editor pixel', flush=True)
 
     print('PASS: captured editor animation continues while the flat primary output sleeps', flush=True)
+    control('chord', 33, 'button', 273, 1, 'button', 273, 0)
+    wait_for(lambda:any(e['kind']=='context-ready' for e in events()), 'right-click context menu')
+    (RUN/'context.png').write_bytes(subprocess.check_output(['grim','-o','WL-2','-t','png','-'],env=env,timeout=5))
+    control('motion', 20, 12, 'wait', 650, 'button', 272, 1, 'button', 272, 0)
+    wait_for(lambda:any(e['kind']=='context-action' for e in events()), 'click context menu action')
+    control('chord', 33, 'button', 273, 1, 'button', 273, 0)
+    wait_for(lambda:sum(e['kind']=='context-ready' for e in events())>=2, 'second context menu')
+    control('key', 1)
+    wait_for(lambda:sum(e['kind']=='context-closed' for e in events())>=2, 'Escape dismisses menu')
+    control('wait', 550)  # Separate right clicks from GTK's double-click interval.
+    control('chord', 33, 'button', 273, 1, 'button', 273, 0)
+    wait_for(lambda:sum(e['kind']=='context-ready' for e in events())>=3, 'third context menu')
+    control('motion', -60, -60, 'button', 272, 1, 'button', 272, 0)
+    wait_for(lambda:sum(e['kind']=='context-closed' for e in events())>=3, 'outside click dismisses menu')
+    print('PASS: real right-click popup opens, accepts a pointer-selected action and dismisses with Escape/outside click', flush=True)
+
 
     angles = [60., 0., 0.]
     time.sleep(.3)

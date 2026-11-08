@@ -120,7 +120,7 @@ clicks/typing, animation with its flat output asleep, head-only input independen
 offscreen click protection, unbounded selection/release, scale 1.25, transient
 dialogs, lock blanking/re-entry, frozen-helper escape with one matching release,
 stale feed recovery, hung helper recovery, and simulated output disconnect without
-killing the editor. Eight Python bridge/capture/launcher/handoff tests, the tracker timestamp
+killing the editor. Nine Python bridge/capture/launcher/handoff tests, the tracker timestamp
 regression, and the native geometry test pass. Enabled/disabled labwc feature
 builds are checked. Evidence and binary hashes are in `.local/native-check/`.
 
@@ -235,3 +235,23 @@ capture, frame manipulation, cancellation and recovery tests. Geometry tests
 cover packet splitting through vertical limits, true cylinder positions and
 cursor pixel scale across depths. The matching release is staged for the next
 login; the currently running compositor has not been replaced.
+
+
+## Ready notifications and right-click menus
+
+The session supervisor now emits one warmup notice and one ready notice per
+connection, independent of whether a preview is requested. Readiness requires
+connection, completed calibration, the full minute and the owned UDP source port.
+The readiness test covers unchanged state crossing the deadline, absent ports,
+no repeated ready notice and reconnects; the tracker handoff shares this logic.
+
+Right-click testing exposed popup constraints using a sleeping output's usable
+area and stale client coordinates after pointer summon. Spatial XDG popups now
+use parent-window constraints, and seat motion is synchronized before a press
+and after summon. Real GTK menu action selection, Escape dismissal and outside
+click dismissal passed with the flat output asleep on both GLES and Vulkan,
+with the existing input/manipulation/recovery suite. Test input now uses real
+monotonic timestamps, including elapsed waits, so GTK menu timing is realistic.
+Evidence: `.local/native-check/1794161349588093884/` (GLES) and
+`.local/native-check/1794161373431958510/` (Vulkan). Physical app acceptance is
+still pending the updated login; XWayland override-redirect menus are unvalidated.

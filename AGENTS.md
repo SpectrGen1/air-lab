@@ -38,6 +38,16 @@ releases must be consumed even after mode exit or view destruction. Identify
 grab targets by creation ID/workspace, not retained view pointers. Keep popup/
 shadow capture extents inside the frame and head pose out of manipulation math.
 
+TrackerNotifications in the session supervisor owns warmup/ready notifications,
+including when no preview is open; the handoff monitor reuses it. Observe on
+every loop, since the minute can expire without a readiness-file value changing.
+Require connection, calibration, elapsed warmup and the owned source port; notify
+once per connection. The preview wrapper deliberately emits no duplicate notice.
+Spatial XDG popup constraints use parent-window coordinates, not sleeping output
+usable areas. Synchronize seat coordinates before presses and after summon.
+Keep the real right-click/action/Escape/outside-click test. Test input timestamps
+must be monotonic and reflect waits, or GTK menu timing produces false failures.
+
 Pointer gain comes from the renderer viewport width at the fixed 40° horizontal
 FOV, not the old .0012 radians/count. `amouse_move` integrates angular elevation
 and elevation-compensated horizontal travel without head input, including packet

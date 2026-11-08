@@ -15,6 +15,11 @@ After this initial login, entering/exiting spatial mode keeps applications in
 that same labwc process; it does not reconnect or relaunch them.
 
 Leave the Air motionless on a table for a minute after login or USB reconnection.
+The session announces the warmup when a tracker connection starts, then sends
+**Glasses ready** once calibration, the full one-minute wait and the child-owned
+UDP socket are all ready. This happens even without requesting a preview, once
+per connection; a reconnect starts a new warmup/ready pair. The preview launcher
+does not emit a duplicate warmup notice.
 Tracking starts with the session and is stopped when that session ends. A
 readiness file under the private user runtime directory tracks connection,
 calibration, warmup and the child-owned UDP socket; requesting spatial mode early
@@ -204,6 +209,15 @@ there. Use the panel-move shortcuts to reposition a panel without changing the
 original desktop rectangle. XWayland override-redirect popups, large/complex
 subsurface trees and unusual cursor buffer transforms still need their own
 validation. Do not claim these feature gates passed from the GTK test.
+
+Right-click XDG context menus are constrained in parent-window coordinates while
+spatial mode owns the display, rather than against a sleeping monitor's empty
+usable area. Their captured popup surfaces receive real pointer input. Pointer
+coordinates are synchronized before presses and after explicitly summoning the
+pointer, so a menu opens at the visible hotspot. The regression opens a GTK
+context menu, clicks a real action, and dismisses subsequent menus with Escape
+and an outside click while the flat output sleeps. XWayland override-redirect
+menus remain a separate unvalidated gate.
 
 The automated test's simulated output disconnect is not an actual USB/DP unplug
 of the Air. Physical unplug, NVIDIA physical display sleep/wake, long-running
