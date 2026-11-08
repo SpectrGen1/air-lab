@@ -80,8 +80,25 @@ Existing udev and kanshi setup worked without changes. No packages were installe
 Use one IMU reader. The session supervisor owns tracking and waits a full minute
 of instructed stationary warmup after USB connection before native presentation.
 Recenter is not bias calibration. Initial severe incoming-pose drift was reduced
-by timestamp rebasing and stationary warmup; the user confirmed the browser view
-became steady. Longer drift/optical checks remain outstanding. Native tracking is
+by timestamp rebasing, but the 2026-11-08 native test found another cause: XREAL
+connection blindly averages the first 1,000 samples into calibration. Motion at
+connection can create a false bias above FusionOffset's 3°/s acceptance threshold;
+waiting later cannot recover it. Preserve factory calibration with
+`patches/xreal-preserve-factory-calibration.patch`, tested by compiling the actual
+connection function against mocks. That regression fails on original upstream.
+Resetting the old reader while stationary helped temporarily, but a reconnect
+ran its bad calibration again. `restart-native-tracker.py` now provides a live
+handoff to a fixed release; it stops the prior reader before starting the new
+one and monitors compositor/supervisor pidfds for cleanup. Check `live_tracker`
+in `.local/native-install.json`; the original session supervisor still remembers
+its exited child. The handoff publishes the replacement's readiness/source port.
+The fixed reader's 35-second stationary yaw change was -0.0088° (0.0179° range),
+versus +294.887° beforehand. Longer checks remain outstanding. Renderer sequence
+reset detection exits spatial mode if the driver's orientation reference resets,
+rather than retaining an obsolete neutral frame and flipping the workspace.
+The user confirmed upright, steady windows after looking around and holding
+still with the fixed reader. Preserve this distinction from the older fixes.
+Native tracking is
 pinned to the UDP socket owned by the session child, not an arbitrary local sender.
 The wrapper disables
 metrics and directs upstream's automatic license HTTP requests to a closed local

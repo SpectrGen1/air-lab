@@ -23,6 +23,17 @@ source port and validates packet sources, rather than accepting arbitrary local
 UDP senders.
 Do not start a second IMU reader or the old browser pose bridge alongside it.
 
+The tracker preserves factory calibration at connection. Upstream's unconditional
+one-second recalibration was removed: movement during that second can be learned
+as a large false turn rate, which its later stationary estimator rejects even
+after minutes of waiting. The timestamp-gap correction remains independently
+necessary. This does not provide an absolute yaw reference or guarantee zero
+long-term gyro drift. Recenter changes the neutral direction, not gyro bias.
+Wait until windows are visible before recentering with your head upright.
+The renderer exits spatial mode if the driver's packet sequence resets its
+orientation reference; re-enter after the new warmup rather than using an
+obsolete neutral frame that can flip the workspace.
+
 | Shortcut | Action |
 | --- | --- |
 | Super+Alt+X | Start native preview; cancel an arming preview; exit active spatial mode |
@@ -167,6 +178,7 @@ it. Its final JSON result records the tested binary hashes. It checks:
 - emergency escape with a frozen helper and exactly one held-button release;
 - stale tracking, hung-helper termination, and output-disconnect recovery while
   preserving the existing editor process.
+- tracker reference-reset recovery without retaining an obsolete viewing frame.
 
 The geometry unit test covers head/pointer independence, cylinder seam,
 back/parallel rays, unbounded/fractional coordinates and transient offsets.
@@ -194,6 +206,16 @@ next spawn, recording the redirect in the install manifest. Binaries remain
 frozen; the old release's helper launcher is the deliberate exception. Exit the
 preview and toggle again to use the update without logging out. A changed
 compositor still requires a new login.
+
+For a tracker update in an existing login, `python3 scripts/restart-native-tracker.py`
+closes the private preview, stops the old reader, then starts the selected release
+under a handoff monitor. It follows the compositor and original supervisor using
+pidfds, stops the replacement when either exits, and publishes readiness/source
+port for the new child. The original supervisor may briefly publish a false
+readiness state for its exited child; this can only delay warmup. The monitor
+republishes the replacement's state. `live_tracker` in the install manifest and
+`.local/tracker/handoff.log` record this temporary ownership. Next login uses the
+ordinary supervisor again. Do not launch a second handoff concurrently.
 
 For a single stock session from a logged-in VT:
 

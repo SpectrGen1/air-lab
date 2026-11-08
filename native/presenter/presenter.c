@@ -72,6 +72,8 @@ struct app {
     uint64_t epoch, generation;
     int ipc, udp;
     uint16_t source_port;
+    uint32_t pose_sequence;
+    bool have_pose_sequence;
     bool running, configured, frame_due, committed, pose_valid, zero_valid, active;
     int width, height;
     uint64_t pose_stamp, last_frame, last_pose_report;
@@ -734,6 +736,22 @@ static void receive_pose(struct app *a) {
             valid = valid && isfinite(values[i]) && fabs(values[i]) < 10000;
         if (!valid)
             continue;
+        if (n == 52) {
+            uint32_t sequence;
+            memcpy(&sequence, buf + 48, sizeof(sequence));
+            /* The driver resets its counter with its orientation reference.
+             * Never keep rendering against an obsolete neutral frame after a
+             * reconnect: it can suddenly turn the entire workspace upside down.
+             * Ordinary uint32 wrap is continuous, not a new tracker stream. */
+            if (a->have_pose_sequence && sequence == 0 && a->pose_sequence > 10 &&
+                a->pose_sequence < UINT32_MAX - 10) {
+                fprintf(stderr, "air presenter: tracker reference reset; re-enter after warmup\n");
+                a->running = false;
+                return;
+            }
+            a->pose_sequence = sequence;
+            a->have_pose_sequence = true;
+        }
         abasis(-values[3] * AIR_PI / 180, -values[4] * AIR_PI / 180, values[5] * AIR_PI / 180,
                a->raw);
         a->pose_stamp = now_ns();

@@ -8,3 +8,4 @@ cc -std=c17 -O2 -I "$tracker_src/include" -I "$tracker_src/modules/Fusion" \
     "$tracker_build/modules/Fusion/Fusion/libFusion.a" \
     $(pkg-config --cflags --libs json-c) -lm -o "$lab_root/.local/check-tracker"
 "$lab_root/.local/check-tracker"
+python3 "$lab_root/scripts/check-tracker-startup.py"

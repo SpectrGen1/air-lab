@@ -1,0 +1,15 @@
+diff --git a/src/devices/xreal.c b/src/devices/xreal.c
+index 45e2740..3b8c308 100644
+--- a/src/devices/xreal.c
++++ b/src/devices/xreal.c
+@@ -254,7 +254,9 @@ bool xreal_device_connect() {
+         connected = imu_error == DEVICE_IMU_ERROR_NO_ERROR;
+         if (connected) {
+             device_imu_clear(glasses_imu);
+-            device_imu_calibrate(glasses_imu, 1000, true, true, false);
++            /* Preserve factory calibration. A blind one-second average at USB
++             * connection can learn real head motion as gyro bias. FusionOffset
++             * already learns small residual bias only after stationary samples. */
+         }
+     }
+ 

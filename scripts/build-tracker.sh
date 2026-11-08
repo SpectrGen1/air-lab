@@ -14,6 +14,13 @@ if [ "$(git -C "$tracker_src" rev-parse HEAD)" != "$tracker_rev" ]; then
     echo "Tracker checkout differs from tested revision $tracker_rev; inspect it manually." >&2
     exit 1
 fi
+startup_patch="$lab_root/patches/xreal-preserve-factory-calibration.patch"
+if git -C "$tracker_src" apply --reverse --check "$startup_patch" 2>/dev/null; then
+    echo 'Factory-calibration preservation patch already applied.'
+else
+    git -C "$tracker_src" apply --check "$startup_patch"
+    git -C "$tracker_src" apply "$startup_patch"
+fi
 git -C "$tracker_src" submodule update --init --recursive
 fusion_src="$tracker_src/modules/xrDeviceKit"
 fusion_patch="$lab_root/patches/xrdevicekit-timestamp-rebase.patch"

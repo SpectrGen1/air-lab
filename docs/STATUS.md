@@ -60,6 +60,42 @@ put the glasses back on, looked around, recentered, and confirmed that the view
 stays steady and the continuous rotation is gone. Longer drift/ergonomics tests
 remain part of design gate 1.
 
+On 2026-11-08 the user reported severe drift again in native mode despite several
+minutes on a table. A stationary measurement of the session-owned UDP feed showed
++294.887° unwrapped yaw over 35 seconds, before native projection. Runtime
+inspection showed a nonzero startup calibration and FusionOffset's timer stuck
+at zero with no learned residual correction. XREAL connection unconditionally
+calls `device_imu_calibrate(..., 1000, true, true, false)`: it averages the first
+second without verifying stationarity. Motion captured there can produce an
+error above the later estimator's 3°/s stationary threshold, preventing recovery.
+
+Disabling and re-enabling the existing session reader while the user kept the
+Air resting reset that poisoned calibration. Another 35-second measurement
+showed yaw +0.1208° (range 0.1557°), pitch +0.0954°, roll -0.0273°. Evidence is
+`.local/drift/native-stationary.json` and `recalibrated-stationary.json`.
+The new startup patch preserves factory calibration and the stationary estimator
+instead of running the blind average. Its regression compiles the actual
+connection function and fails against original upstream. The old reader then
+reconnected, ran its bad calibration again, and the user reported slower drift
+and upside-down panels; another recenter restored upright viewing.
+
+The fixed reader was subsequently started in the existing desktop using the
+tracked handoff monitor, after terminating the old reader. Its actual factory
+calibration remained unchanged, and the stationary estimator learned a small
+residual bias. A fresh 35-second stationary measurement showed yaw -0.00878°
+(range 0.01788°), pitch +0.00351° (range 0.02380°), and roll -0.00021° (range
+0.01347°). Evidence is `.local/drift/factory-preserved-stationary.json`. No second
+IMU reader was active. The monitor's disposable-process test verifies that the
+replacement stops when the compositor exits while unrelated clients survive.
+The new renderer also exits on a tracker sequence/reference reset rather than
+continuing with a stale neutral frame. Long-term drift and movement/reconnect
+hardware acceptance still require separate checks.
+
+With the fixed reader running, the user put the Air on, entered the visible
+preview, recentered upright, looked around, then held still for 20–30 seconds and
+confirmed the windows were upright and steady. This is a short physical
+acceptance result, not a ten-minute drift benchmark.
+
 ## Review findings and next gates
 
 The supplied prototype is suitable for the first interaction experiment. The
@@ -84,7 +120,7 @@ clicks/typing, animation with its flat output asleep, head-only input independen
 offscreen click protection, unbounded selection/release, scale 1.25, transient
 dialogs, lock blanking/re-entry, frozen-helper escape with one matching release,
 stale feed recovery, hung helper recovery, and simulated output disconnect without
-killing the editor. Six Python bridge/launcher tests, the tracker timestamp
+killing the editor. Seven Python bridge/launcher/handoff tests, the tracker timestamp
 regression, and the native geometry test pass. Enabled/disabled labwc feature
 builds are checked. Evidence and binary hashes are in `.local/native-check/`.
 

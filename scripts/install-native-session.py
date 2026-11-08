@@ -87,6 +87,11 @@ def main():
                    'entrypoint_sha256': hashlib.sha256(updated.encode()).hexdigest(),
                    'validation': str(tests[-1])})
     install_config = ROOT / '.local/native-install.json'
+    if install_config.exists():
+        prior = json.loads(install_config.read_text())
+        for key in ('live_tracker', 'live_helper_redirect'):
+            if key in prior:
+                config[key] = prior[key]
     install_config.write_text(json.dumps(config, indent=2) + '\n')
     temp.replace(entrypoint)
     fallback = Path.home() / '.local/bin/air-spatial-stock'

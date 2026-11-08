@@ -70,15 +70,21 @@ nested_env = base_env | {
 angles = [0., 0., 0.]
 paused = False
 stop = threading.Event()
+reset_stream = threading.Event()
 sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sender_socket.bind(('127.0.0.1', 0))
 source_port = sender_socket.getsockname()[1]
 
 def send_pose():
     with sender_socket as sender:
+        sequence = 0
         while not stop.is_set():
             if not paused:
-                sender.sendto(struct.pack('=6dI', 0, 0, 0, *angles, 1), ('127.0.0.1', port))
+                if reset_stream.is_set():
+                    sequence = 0
+                    reset_stream.clear()
+                sender.sendto(struct.pack('=6dI', 0, 0, 0, *angles, sequence), ('127.0.0.1', port))
+                sequence = (sequence + 1) & 0xffffffff
             stop.wait(1 / 120)
 
 
@@ -226,6 +232,15 @@ try:
     wait_for(lambda: 'WL-1 on' in power(), 'stale tracking restored outputs')
     paused = False
     print('PASS: stale tracking restores desktop without input from the helper', flush=True)
+
+    enter()
+    before = logs().count('tracker reference reset')
+    reset_helper = next(pid for pid, args in processes() if args[0] == str(HELPER).encode())
+    reset_stream.set()
+    wait_for(lambda: logs().count('tracker reference reset') > before, 'tracker reference reset recovery')
+    wait_for(lambda: not Path(f'/proc/{reset_helper}').exists(), 'reference reset helper exit')
+    wait_for(lambda: 'WL-1 on' in power(), 'reference reset restored outputs')
+    print('PASS: tracker reference reset exits spatial mode instead of flipping the workspace', flush=True)
 
     enter()
     helper_pid = next(pid for pid, args in processes() if args[0] == str(HELPER).encode())
