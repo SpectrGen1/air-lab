@@ -38,17 +38,14 @@ releases must be consumed even after mode exit or view destruction. Identify
 grab targets by creation ID/workspace, not retained view pointers. Keep popup/
 shadow capture extents inside the frame and head pose out of manipulation math.
 
-TrackerNotifications in the session supervisor owns warmup/ready notifications,
-including when no preview is open; the handoff monitor reuses it. Observe on
-every loop, since the minute can expire without a readiness-file value changing.
-Require connection, calibration, elapsed warmup and the owned source port; notify
-once per connection. Keep glasses worn and head still during warmup: the user
-observed off-face sleep/reconnect on the table. Do not retain readiness over a
-real reconnect. Notices replace one notification: warmup/lost connection persist,
-but ready expires after the normal five seconds (user preference). Delivery
-failures retry. The installer adds an Air-only mako
-rule (the workstation globally ignores app timeouts); preserve its rollback copy.
-The preview wrapper deliberately emits no duplicate notice.
+User preference: no Air notifications and no artificial one-minute warmup.
+Supervisor/handoff publish connection, calibration and owned source-port state;
+renderer startup requires those live prerequisites but ignores legacy `ready_at`
+deadlines. Upstream initial calibration still takes roughly 15 seconds before
+its usable feed; retain actual tracking-loss/source ownership checks. The
+installer silences Air notices from an older running supervisor via an Air-only
+mako rule, with a rollback backup. Do not restart tracking to apply this policy;
+refreshing the helper launcher is enough when compositor hashes match.
 Spatial XDG popup constraints use parent-window coordinates, not sleeping output
 usable areas. Synchronize seat coordinates before presses and after summon.
 Keep the real right-click/action/Escape/outside-click test. Test input timestamps
@@ -126,9 +123,8 @@ Verified baseline 2026-11-07: `spectre`, Brian, Gentoo/OpenRC, NVIDIA, original 
 Observed Air DP-4 at 1080p/60, extended right of Dell/LG. Recheck identities live.
 Existing udev and kanshi setup worked without changes. No packages were installed.
 
-Use one IMU reader. The session supervisor owns tracking and waits a full minute
-of instructed stationary warmup while worn after connection before native
-presentation.
+Use one IMU reader. The session supervisor owns tracking; there is no added stationary-warmup timer
+or readiness notification.
 Recenter is not bias calibration. Initial severe incoming-pose drift was reduced
 by timestamp rebasing, but the 2026-11-08 native test found another cause: XREAL
 connection blindly averages the first 1,000 samples into calibration. Motion at

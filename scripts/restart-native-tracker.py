@@ -13,7 +13,6 @@ import select
 import signal
 import subprocess
 import sys
-import time
 
 ROOT = Path(os.environ.get('AIR_LAB_ROOT', Path(__file__).resolve().parent.parent)).resolve()
 
@@ -106,7 +105,6 @@ def supervise():
     connected = calibrated = False
     ready_at = 0
     tail = b''
-    notifications = module.TrackerNotifications()
     temp = ready.with_name('tracker.handoff.tmp')
     try:
         while child.poll() is None and not lifetime.poll(200):
@@ -124,14 +122,13 @@ def supervise():
                 for line in lines:
                     if b'Device connected, redirecting input' in line:
                         connected, calibrated = True, False
-                        ready_at = time.monotonic() + 60
+                        ready_at = 0
                     elif b'Device calibration complete' in line:
                         calibrated = True
                     elif b'Waiting for glasses' in line or b'Retrying driver connection' in line:
                         connected = calibrated = False
             state = {'connected': connected, 'calibrated': calibrated, 'ready_at': ready_at,
                      'pid': child.pid, 'source_port': module.tracker_source_port(child.pid)}
-            notifications.observe(state, time.monotonic())
             # The old supervisor may publish its dead child's state once when
             # these shared log events arrive. Republish the live owner's state;
             # a competing false state can only delay readiness, never enable it.
@@ -179,7 +176,7 @@ def main():
         monitor = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--supervise'],
                                    start_new_session=True, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
     print(f'Tracker handoff monitor {monitor.pid}; log: {log_path}')
-    print('Keep the Air on and hold your head still for its fresh one-minute warmup.')
+    print('Tracking resumes when the device is connected and its initial calibration completes.')
 
 
 if __name__ == '__main__':

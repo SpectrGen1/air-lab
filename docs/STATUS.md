@@ -286,3 +286,22 @@ The user subsequently preferred normal expiry for the ready notice. The Air-only
 mako rule now lets “Glasses ready” expire after the usual five seconds, including
 in the running handoff. Warmup/disconnection guidance still persists. No tracker
 restart or new calibration is required for this notification-only change.
+
+
+## Final notification/warmup preference
+
+The user requested no Air notifications and no added one-minute delay. The
+supervisor and handoff no longer notify or add a warmup deadline, and the
+presenter ignores legacy deadlines in the running session's readiness file.
+It still requires connection, initial driver calibration and the child-owned
+UDP source port; source validation and tracking-loss recovery are unchanged.
+The browser launcher also opens immediately. The driver's approximately
+15-second initialization is separate from the removed extra minute.
+
+The installer replaced the Air-only mako rule with suppression for old running
+supervisors. The tested helper was redirected live with identical compositor
+hashes, so the next toggle uses this policy without a logout or tracker restart.
+Eight Python tests pass, including inherited private IPC with a legacy readiness
+deadline one hour in the future. No native binaries changed. Selected release:
+`.local/releases/cea75bfc3df9707e`. Earlier notification acceptance above is
+historical and no longer describes the requested behavior.

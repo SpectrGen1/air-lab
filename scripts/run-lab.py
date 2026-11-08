@@ -44,15 +44,7 @@ def main():
             children.append(subprocess.Popen([
                 sys.executable, str(ROOT / 'scripts/run-tracker.py'),
                 '--udp-port', str(opt.udp_port)]))
-            print('Keep the glasses on and hold your head still for 60 seconds. '
-                  'The browser will open after sensor bias calibration.', flush=True)
-            warmup_until = time.monotonic() + 60
-            while time.monotonic() < warmup_until:
-                if any(child.poll() is not None for child in children):
-                    raise RuntimeError('A lab process exited during calibration.')
-                time.sleep(.25)
-            print('Calibration warmup finished. Face forward, '
-                  'then press R in the preview.', flush=True)
+            print('Face forward and press R once tracking is visible.', flush=True)
         if not opt.no_browser:
             subprocess.run(['setsid', '-f', 'xdg-open', url], check=True)
         print('Ctrl+C stops the lab. Esc releases the captured mouse.', flush=True)

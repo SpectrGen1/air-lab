@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wait for the session's stationary tracker warmup, then exec the private renderer."""
+"""Wait for the session-owned tracker connection, then exec the private renderer."""
 import json
 import os
 from pathlib import Path
@@ -20,7 +20,7 @@ def main():
         except (FileNotFoundError, json.JSONDecodeError):
             state = {}
         if (state.get('connected') and state.get('calibrated')
-                and state.get('source_port') and time.monotonic() >= state.get('ready_at', float('inf'))):
+                and state.get('source_port')):
             os.environ['AIR_SPATIAL_SOURCE_PORT'] = str(state['source_port'])
             os.execv(renderer, [renderer, *sys.argv[1:]])
         if poll.poll(250):

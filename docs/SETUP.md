@@ -49,9 +49,9 @@ source changes fail its application rather than silently overwriting code.
 timestamps and checks that a slow real turn still integrates.
 
 The launcher starts its loopback UDP receiver before starting the tracker.
-Keep the Air on and hold your head still for 60 seconds while the launcher warms
-up the tracker. Taking them off may put them to sleep and restart tracking. Its initial UDP packets arrive earlier and do not mean bias
-calibration has settled. The browser opens after this warmup. Select 40° on the Air output, fullscreen, look forward, R.
+The browser opens without an added warmup delay. Wait for live tracking, select
+40° on the Air output, fullscreen, look forward, and press R. The device's own
+initial calibration still precedes its usable feed.
 All clicks stay inside the browser prototype. Real application editing through
 these panels is a future native milestone.
 

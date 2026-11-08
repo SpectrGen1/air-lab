@@ -19,22 +19,24 @@ def digest(path):
 
 
 def configure_notifications(rollback_dir, date):
-    """Keep warmup visible; use the normal five-second timeout once ready."""
+    """Silence Air notices from an older supervisor still running this login."""
     path = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'mako/config'
     if not path.is_file():
         return
     marker = '# Air Spatial Lab tracker readiness'
     old_rule = (marker + '\n[app-name="Air Spatial Lab"]\n'
                 'ignore-timeout=0\ndefault-timeout=0\n')
-    rule = (old_rule + '\n[app-name="Air Spatial Lab" body~="^Glasses ready[.]"]\n'
-            'ignore-timeout=1\ndefault-timeout=5000\n')
+    timed_rule = (old_rule + '\n[app-name="Air Spatial Lab" body~="^Glasses ready[.]"]\n'
+                  'ignore-timeout=1\ndefault-timeout=5000\n')
+    rule = marker + '\n[app-name="Air Spatial Lab"]\ninvisible=1\nhistory=0\n'
     before = path.read_text()
+    if before.endswith(rule):
+        return
     if marker in before:
-        if before.endswith(rule):
-            return
-        if not before.endswith(old_rule):
+        old = next((value for value in (timed_rule, old_rule) if before.endswith(value)), None)
+        if old is None:
             raise SystemExit('Air notification rule was edited; inspect the mako config before installing.')
-        updated = before[:-len(old_rule)] + rule
+        updated = before[:-len(old)] + rule
     else:
         updated = before.rstrip() + '\n\n' + rule
     backup = rollback_dir / ('mako.before-air-notifications-' + date)
@@ -45,7 +47,7 @@ def configure_notifications(rollback_dir, date):
         if result.returncode:
             path.write_text(before)
             raise SystemExit('Could not reload mako; restored its config: ' + result.stderr.strip())
-    print('Ready notices use the normal five-second timeout. Mako backup: ' + str(backup))
+    print('Air notifications disabled. Mako backup: ' + str(backup))
 
 
 def main():

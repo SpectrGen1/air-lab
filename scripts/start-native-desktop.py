@@ -37,62 +37,6 @@ def tracker_source_port(pid):
         return None
 
 
-class TrackerNotifications:
-    """Keep one persistent notice in sync with the current tracker connection."""
-    def __init__(self, send=None):
-        self.send = send or self.notify
-        self.notification_id = 0
-        self.seen_connection = False
-        self.last_announcement = None
-        self.retry_at = 0
-
-    def notify(self, body):
-        if os.environ.get('AIR_NATIVE_TEST_ID'):
-            return True
-        try:
-            result = subprocess.run(
-                ['notify-send', '-a', 'Air Spatial Lab', '-t', '0', '-p',
-                 '-r', str(self.notification_id), 'Air spatial mode', body],
-                capture_output=True, text=True, check=False, timeout=2)
-            if result.returncode:
-                print('Air tracker notification failed: ' + result.stderr.strip(), file=sys.stderr)
-                return False
-            self.notification_id = int(result.stdout.strip())
-            print('Air tracker notice: ' + body, flush=True)
-            return True
-        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-            print('Air tracker notification failed: ' + str(error), file=sys.stderr)
-            return False
-
-    def observe(self, state, now):
-        if not state.get('connected'):
-            if not self.seen_connection:
-                return
-            announcement = ('disconnected',)
-            body = ('Tracking disconnected or asleep. Put the glasses on and keep them on. '
-                    'When tracking reconnects, hold your head still for the new one-minute '
-                    'warmup; taking them off may put them back to sleep.')
-        else:
-            self.seen_connection = True
-            ready = (state.get('calibrated') and state.get('source_port')
-                     and now >= state.get('ready_at', float('inf')))
-            announcement = (state.get('pid'), state.get('ready_at'), bool(ready))
-            if ready:
-                body = ('Glasses ready. The one-minute tracking warmup is complete. '
-                        'Keep the glasses on; once the preview is visible, face forward '
-                        'and press Super+Alt+R to recenter.')
-            else:
-                body = ('Keep the glasses on and hold your head still for one minute. '
-                        'Taking them off may put the sensors to sleep and restart warmup. '
-                        'This notice will change to Glasses ready when warmup completes.')
-        if announcement != self.last_announcement and now >= self.retry_at:
-            if self.send(body) is False:
-                self.retry_at = now + 5
-            else:
-                self.last_announcement = announcement
-                self.retry_at = 0
-
-
 def main():
     if os.environ.get('AIR_USE_STOCK') == '1':
         os.execv('/usr/bin/labwc', ['/usr/bin/labwc', *sys.argv[1:]])
@@ -145,7 +89,6 @@ def main():
         ready_at = 0
         last_state = None
         tail = b''
-        notifications = TrackerNotifications()
         while compositor.poll() is None:
             try:
                 with log_path.open('rb') as stream:
@@ -161,7 +104,7 @@ def main():
                 for line in lines:
                     if b'Device connected, redirecting input' in line:
                         connected, calibrated = True, False
-                        ready_at = time.monotonic() + 60
+                        ready_at = 0
                     elif b'Device calibration complete' in line:
                         calibrated = True
                     elif b'Waiting for glasses' in line or b'Retrying driver connection' in line:
@@ -171,7 +114,6 @@ def main():
             state = {'connected': connected and tracker.poll() is None,
                      'calibrated': calibrated, 'ready_at': ready_at, 'pid': tracker.pid,
                      'source_port': tracker_source_port(tracker.pid) if tracker.poll() is None else None}
-            notifications.observe(state, time.monotonic())
             if state != last_state:
                 tmp = ready_file.with_suffix('.tmp')
                 tmp.write_text(json.dumps(state))

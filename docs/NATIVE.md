@@ -14,25 +14,18 @@ Replacing a running compositor cannot preserve its existing client connections.
 After this initial login, entering/exiting spatial mode keeps applications in
 that same labwc process; it does not reconnect or relaunch them.
 
-Keep the Air on and hold your head still for a minute after login or reconnection.
-The user observed that removing them can put tracking to sleep; putting them back
-on then starts a new connection and warmup. Do not wait on the table if they sleep.
-The session announces the warmup when a tracker connection starts, then sends
-**Glasses ready** once calibration, the full one-minute wait and the child-owned
-UDP socket are all ready. This happens even without requesting a preview, once
-per connection; a reconnect starts a new warmup/ready pair. The preview launcher
-does not emit a duplicate warmup notice. Warmup/disconnection notices persist
-until dismissed or replaced; **Glasses ready** uses the normal five-second
-notification timeout. Disconnection replaces a stale warmup/ready notice. The installer adds
-an Air-only mako rule to honor notification timeouts, preserving a rollback copy
-in `.local/rollback/mako.before-air-notifications-*`. Other apps retain their
-existing notification settings. Delivery failures are logged and retried.
-Tracking starts with the session and is stopped when that session ends. A
-readiness file under the private user runtime directory tracks connection,
-calibration, warmup and the child-owned UDP socket; requesting spatial mode early
-waits for this warmup. The renderer pins its connected receiver to that reserved
-source port and validates packet sources, rather than accepting arbitrary local
-UDP senders.
+Air notifications and the additional one-minute warmup are disabled by user
+preference. The presenter waits only for connection, the driver's initial
+calibration and its owned UDP socket. Device startup can still take approximately
+15 seconds. Legacy `ready_at` deadlines from an older running supervisor are
+ignored; actual tracking-loss watchdogs and source-port validation remain active.
+The installer silences Air notices from an older supervisor with an app-specific
+mako rule and backs up that config under `.local/rollback/`. New supervisors and
+tracker handoff monitors do not send notifications at all.
+Tracking starts with the session and stops when the session ends. A readiness
+file under the private runtime directory tracks connection, calibration and the
+child-owned UDP socket. The renderer pins its receiver to this reserved source
+port, rather than accepting arbitrary local UDP senders.
 Do not start a second IMU reader or the old browser pose bridge alongside it.
 
 The tracker preserves factory calibration at connection. Upstream's unconditional
@@ -43,7 +36,7 @@ necessary. This does not provide an absolute yaw reference or guarantee zero
 long-term gyro drift. Recenter changes the neutral direction, not gyro bias.
 Wait until windows are visible before recentering with your head upright.
 The renderer exits spatial mode if the driver's packet sequence resets its
-orientation reference; re-enter after the new warmup rather than using an
+orientation reference; re-enter after the tracker reconnects rather than using an
 obsolete neutral frame that can flip the workspace.
 
 | Shortcut | Action |
@@ -305,8 +298,8 @@ For a tracker update in an existing login, `python3 scripts/restart-native-track
 closes the private preview, stops the old reader, then starts the selected release
 under a handoff monitor. It follows the compositor and original supervisor using
 pidfds, stops the replacement when either exits, and publishes readiness/source
-port for the new child. The original supervisor may briefly publish a false
-readiness state for its exited child; this can only delay warmup. The monitor
+port for the new child. No artificial warmup is added. The original supervisor
+may briefly publish a false readiness state for its exited child; this can only delay readiness. The monitor
 republishes the replacement's state. `live_tracker` in the install manifest and
 `.local/tracker/handoff.log` record this temporary ownership. Next login uses the
 ordinary supervisor again. Do not launch a second handoff concurrently.
