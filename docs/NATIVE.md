@@ -42,6 +42,8 @@ obsolete neutral frame that can flip the workspace.
 | Super+Alt+R | Recenter the viewing direction without moving the world pointer |
 | Super+Alt+F | Summon the pointer into the current view |
 | Super+Alt+Arrow | Move the focused panel in the spatial workspace |
+| Super+Alt+Minus / Equal | Slow down / speed up the spatial pointer |
+| Super+Alt+0 | Reset pointer speed to its configured default |
 | Alt+Tab / normal workspace keys | Use normal labwc focus/workspace switching |
 
 The presenter shows confirmation instructions on the glasses. Later entries
@@ -73,6 +75,22 @@ Face forward and use Super+Alt+R if the neutral view was set while the Air reste
 on the table. A panel locator remains a usability improvement to implement.
 
 ## Spatial window controls
+
+Mouse gain is calibrated to the renderer viewport: at the default speed, one
+supplied mouse-motion unit is approximately one viewport pixel at the centre.
+The existing device acceleration remains in effect. Vertical movement uses
+angular elevation, and horizontal travel compensates for elevation, so motion
+does not become slower or uneven up/down the cylinder. Packet splitting does
+not change the integrated path. This is workspace-relative motion; head pose
+does not enter mouse integration. Perspective away from the view centre remains
+normal perspective rather than a second screen-relative pointer frame.
+
+The cursor glyph has a consistent on-screen pixel size at different panel
+depths. Its hotspot stays on the compositor's actual world-space intersection;
+over empty space it sits on the cylinder, not a sphere. You can tune speed
+without leaving spatial mode using the shortcuts above. Session adjustments
+persist across toggles; `.local/native-install.json`'s `pointer_speed` (default 1,
+range 0.25–3) selects the starting/reset speed at login.
 
 After confirming spatial mode with Super+Alt+Return, use the new outer spatial
 frame, which sits outside the captured application (including its shadows and

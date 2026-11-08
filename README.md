@@ -15,6 +15,7 @@ effect; actual feed loss or renderer failure still restores the desktop.
 - **Super+Alt+X**: preview/toggle; **Super+Alt+Return**: confirm first entry and sleep monitors.
 - **Super+Alt+Escape**: force desktop; **Super+Alt+R**: recenter; **Super+Alt+F**: summon pointer.
 - **Super+Alt+Arrows**: move the focused panel; ordinary Alt+Tab/workspace switching remains available.
+- **Super+Alt+Minus / Equal:** slower/faster pointer; **Super+Alt+0:** reset speed.
 - **Spatial title bar:** left-drag to move around the cylinder; scroll while
   holding it to move closer/farther. Drag the outer edges/corners to resize in 3D.
   Panels always face the viewer origin; desktop window sizes stay intact.

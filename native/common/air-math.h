@@ -19,9 +19,34 @@ static inline double adot(struct air_vec a, struct air_vec b) {
 }
 static inline double awrap(double x) { return atan2(sin(x), cos(x)); }
 static inline double aclamp(double x, double a, double b) { return fmin(b, fmax(a, x)); }
+static inline struct air_vec acylinder_point(double theta, double h) {
+    return av(AIR_RADIUS * sin(theta), h, AIR_RADIUS * cos(theta));
+}
 static inline struct air_vec aray(double theta, double h) {
-    struct air_vec d = av(AIR_RADIUS * sin(theta), h, AIR_RADIUS * cos(theta));
+    struct air_vec d = acylinder_point(theta, h);
     return ascale(d, 1 / sqrt(adot(d, d)));
+}
+static inline double amouse_gain(double width) {
+    return 2 * tan(40 * AIR_PI / 360) / fmax(1, width);
+}
+/* Constant angular travel on a world-fixed tangent basis. Integrate sec(elevation)
+ * along diagonal motion so splitting a packet does not change the path. */
+static inline void amouse_move(double *theta, double *height, double dx, double dy, double gain) {
+    double start = atan2(*height, AIR_RADIUS), delta = -dy * gain;
+    double limit = atan2(1.2, AIR_RADIUS), end = aclamp(start + delta, -limit, limit);
+    double factor;
+    if (fabs(end - start) > 1e-10) {
+        double fraction = (end - start) / delta;
+        factor = fraction * (atanh(sin(end)) - atanh(sin(start))) / (end - start) +
+                 (1 - fraction) / cos(end);
+    } else {
+        factor = 1 / cos(start);
+    }
+    *theta = awrap(*theta + dx * gain * factor);
+    *height = AIR_RADIUS * tan(end);
+}
+static inline double acursor_pixel_scale(double depth, double width, double surface_scale) {
+    return fmax(.01, depth) * amouse_gain(width) / fmax(1, surface_scale);
 }
 static inline struct air_vec acentre(const struct air_panel *p) {
     double s = sin(p->azimuth), c = cos(p->azimuth);

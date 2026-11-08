@@ -94,8 +94,9 @@ def main():
                 config[key] = prior[key]
         config['panel_scale'] = prior.get('panel_scale', 2 / 3)
         config['head_roll'] = prior.get('head_roll', False)
+        config['pointer_speed'] = prior.get('pointer_speed', 1)
     else:
-        config.update(panel_scale=2 / 3, head_roll=False)
+        config.update(panel_scale=2 / 3, head_roll=False, pointer_speed=1)
     install_config.write_text(json.dumps(config, indent=2) + '\n')
     temp.replace(entrypoint)
     fallback = Path.home() / '.local/bin/air-spatial-stock'

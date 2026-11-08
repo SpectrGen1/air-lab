@@ -82,6 +82,26 @@ int main(void){
   near(awrap(atan2(q.x,q.z)-theta),0);
   assert(fabs(AIR_RADIUS*q.y/hypot(q.x,q.z)-ph)<1e-6);
  }
+
+ /* Pixel-calibrated, camera-independent pointer travel and packet invariance. */
+ double gain=amouse_gain(1920),theta=0,height=0;
+ amouse_move(&theta,&height,1,0,gain);
+ assert(fabs(tan(theta)*1920/(2*tan(20*AIR_PI/180))-1)<1e-6);
+ for(int k=-5;k<=5;k++){
+  double start_height=k*.2,full_theta=.4,full_height=start_height;
+  double split_theta=full_theta,split_height=full_height;
+  amouse_move(&full_theta,&full_height,200,-450,gain);
+  for(int j=0;j<100;j++)amouse_move(&split_theta,&split_height,2,-4.5,gain);
+  near(full_theta,split_theta);near(full_height,split_height);
+  struct air_vec empty=acylinder_point(full_theta,full_height);
+  near(hypot(empty.x,empty.z),AIR_RADIUS);near(empty.y,full_height);
+ }
+ theta=0;height=0;amouse_move(&theta,&height,0,10,gain);
+ near(atan2(height,AIR_RADIUS),-10*gain);
+ for(int i=1;i<9;i++){
+  double depth=i*.5,scale=acursor_pixel_scale(depth,1920,1);
+  near(scale/depth*1920/(2*tan(20*AIR_PI/180)),1);
+ }
  assert(sizeof(struct air_packet)<1024);
  puts("PASS: independent head/pointer geometry, full seam, rear/parallel rays, unbounded grabs, fractional popup coordinates and transient offsets");return 0;
 }

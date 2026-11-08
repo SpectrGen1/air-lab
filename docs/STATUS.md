@@ -205,3 +205,33 @@ unequal scales, frame bounds with negative popup origins and off-centre depth
 grabs. Feature-enabled and feature-disabled labwc builds pass without warnings.
 Physical use of these new controls still requires the new compositor login;
 nested results do not establish optical usability or physical acceptance.
+
+## Mouse projection and gain
+
+The user found pointer motion warped/uneven/too fast with the installed spatial
+controls build. Its fixed .0012 radians per motion unit was approximately 3.16
+viewport pixels/unit at 1920 pixels and 40° horizontal FOV. Vertical movement
+used linear cylinder height, making angular response vary with height. The new
+mapping derives gain from viewport width (approximately one pixel/unit at the
+centre), integrates angular elevation and compensates horizontal travel for
+elevation. It retains normal device acceleration and never consumes head pose.
+Splitting the same diagonal input into smaller packets produces the same path,
+including at the vertical limit. Speed can be adjusted live with Super+Alt+Minus/
+Equal and reset with Super+Alt+0.
+
+The empty-space hotspot now sits on the actual cylinder; previously the ray was
+multiplied by the cylinder radius, placing it on a sphere. The cursor glyph now
+keeps a constant viewport pixel size, rather than expanding/shrinking with
+target depth. Rendering still anchors it at the compositor's actual world hit.
+Viewport changes refresh gain/aspect and require a newly presented scene before
+clicks. This does not make pointing depend on head motion or rewrite client
+coordinates to mask an inconsistent visual pointer. Physical feel with these
+new defaults remains to be checked after the new compositor login.
+
+Both `.local/native-check/1794160431501248068/` (NVIDIA GLES) and
+`.local/native-check/1794160453573167858/` (Vulkan) passed the expected-editor-pixel
+gain check and live speed adjustment, along with the existing head/pointer,
+capture, frame manipulation, cancellation and recovery tests. Geometry tests
+cover packet splitting through vertical limits, true cylinder positions and
+cursor pixel scale across depths. The matching release is staged for the next
+login; the currently running compositor has not been replaced.

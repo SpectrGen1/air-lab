@@ -88,6 +88,7 @@ static struct {
     char target_name[128];
 } xr = {.fd = -1};
 static double panel_scale = 2.0 / 3.0;
+static double pointer_speed = 1, configured_pointer_speed = 1, pointer_gain;
 
 static uint64_t now_ns(void) {
     struct timespec t;
@@ -348,7 +349,7 @@ static bool hit_context(struct cursor_context *ctx, struct air_vec *point) {
     xr.hover_id = 0;
     xr.hover_region = 0;
     *ctx = (struct cursor_context){.type = LAB_NODE_ROOT};
-    *point = ascale(d, AIR_RADIUS);
+    *point = acylinder_point(xr.theta, xr.height);
     bool grab = server.seat.pressed.ctx.surface &&
                 !wlr_seat_pointer_has_grab(server.seat.wlr_seat) && !server.seat.drag.active;
     for (int i = 0; i < xr.count; i++) {
@@ -660,8 +661,7 @@ bool air_spatial_motion(double dx, double dy) {
     if (!air_spatial_active())
         return false;
     xr.pointer_pending = xr.ack != xr.epoch;
-    xr.theta = awrap(xr.theta + dx * .0012);
-    xr.height = aclamp(xr.height - dy * .0012 * AIR_RADIUS, -1.2, 1.2);
+    amouse_move(&xr.theta, &xr.height, dx, dy, pointer_gain * pointer_speed);
     if (xr.manipulation.region)
         manipulation_update();
     pointer_packet();
@@ -871,8 +871,16 @@ static int socket_read(int fd, uint32_t mask, void *data) {
             return 0;
         }
         if (m.type == AIR_READY) {
-            xr.aspect =
+            double gain = amouse_gain(m.data.ready.width ? m.data.ready.width : 1920);
+            double aspect =
                 m.data.ready.height ? (double)m.data.ready.width / m.data.ready.height : 16. / 9;
+            bool resized = xr.ready && (gain != pointer_gain || aspect != xr.aspect);
+            pointer_gain = gain;
+            xr.aspect = aspect;
+            if (resized) {
+                xr.count = -1;
+                scene_update(); /* Require a newly presented scene for the new viewport. */
+            }
             if (!xr.ready) {
                 xr.heartbeat = now_ns();
                 if (!xr.pose_stamp)
@@ -1104,7 +1112,15 @@ bool air_spatial_key(struct wlr_keyboard *kb, struct wlr_keyboard_key_event *ev)
             air_spatial_stop("toggle cancelled");
     } else if (key == KEY_ENTER && xr.mode == ARMING)
         enter();
-    else if (key == KEY_R && xr.mode != DESKTOP) {
+    else if ((key == KEY_MINUS || key == KEY_EQUAL || key == KEY_0) && xr.mode == SPATIAL) {
+        pointer_speed = key == KEY_0
+                            ? configured_pointer_speed
+                            : aclamp(pointer_speed * (key == KEY_MINUS ? 1 / 1.2 : 1.2), .25, 3);
+        char message[192];
+        snprintf(message, sizeof(message),
+                 "SPATIAL | pointer %.2fx | Super+Alt+Escape restores desktop", pointer_speed);
+        status(message);
+    } else if (key == KEY_R && xr.mode != DESKTOP) {
         struct air_packet m = {.type = AIR_RECENTER};
         send_packet(&m, -1);
     } else if (key == KEY_F && xr.mode == SPATIAL) {
@@ -1252,6 +1268,14 @@ bool air_spatial_cursor(struct wlr_surface *surface, int hx, int hy) {
 void air_spatial_init(void) {
     xr.enabled = getenv("AIR_SPATIAL_HELPER") != NULL;
     xr.power = getenv("AIR_SPATIAL_POWER") && !strcmp(getenv("AIR_SPATIAL_POWER"), "1");
+    pointer_gain = amouse_gain(1920);
+    const char *speed = getenv("AIR_SPATIAL_POINTER_SPEED");
+    if (speed) {
+        char *end;
+        double value = strtod(speed, &end);
+        if (*end == '\0' && isfinite(value) && value >= .25 && value <= 3)
+            configured_pointer_speed = pointer_speed = value;
+    }
     const char *scale = getenv("AIR_SPATIAL_PANEL_SCALE");
     if (scale) {
         char *end;

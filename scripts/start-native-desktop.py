@@ -62,6 +62,7 @@ def main():
         'AIR_SPATIAL_POWER': '1' if config.get('power', False) else '0',
         'AIR_SPATIAL_PANEL_SCALE': str(config.get('panel_scale', 2 / 3)),
         'AIR_SPATIAL_HEAD_ROLL': '1' if config.get('head_roll', False) else '0',
+        'AIR_SPATIAL_POINTER_SPEED': str(config.get('pointer_speed', 1)),
     }
     parent_pid = os.getpid()
 

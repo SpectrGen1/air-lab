@@ -191,6 +191,20 @@ try:
         frames.append(subprocess.check_output(['grim', '-o', 'WL-2', '-t', 'ppm', '-'], env=env, timeout=5))
         time.sleep(.4)
     assert hashlib.sha256(frames[0]).digest() != hashlib.sha256(frames[1]).digest()
+    viewport = re.match(rb'P6\s+(?:#[^\n]*\n\s*)?(\d+)\s+(\d+)', frames[0])
+    assert viewport, 'Missing renderer viewport dimensions'
+    mouse_gain = 2*math.tan(math.radians(20))/int(viewport.group(1))
+    control('chord', 33, 'motion', 20, 0)
+    motion = [e for e in events() if e['kind']=='motion'][-1]
+    expected = 450 + 1.4*math.tan(20*mouse_gain)/.0006
+    assert abs(motion['x']-expected)<1, (motion,expected)
+    control('motion', -20, 0, 'chord', 12, 'motion', 20, 0)  # slower
+    motion = [e for e in events() if e['kind']=='motion'][-1]
+    expected = 450 + 1.4*math.tan(20*mouse_gain/1.2)/.0006
+    assert abs(motion['x']-expected)<1, (motion,expected)
+    control('chord', 11, 'chord', 33)  # restore configured speed and pointer centre
+    print('PASS: viewport-calibrated mouse gain and live sensitivity controls target the expected editor pixel', flush=True)
+
     print('PASS: captured editor animation continues while the flat primary output sleeps', flush=True)
 
     angles = [60., 0., 0.]
@@ -284,7 +298,9 @@ try:
         center = (d*math.sin(angle), h, d*math.cos(angle))
         q = [center[i] + right[i]*(x-450)*.0006*pose['sx'] + up[i]*(300-y)*.0006*pose['sy'] for i in range(3)]
         theta, height = math.atan2(q[0], q[2]), 1.4*q[1]/math.hypot(q[0],q[2])
-        control('chord', 33, 'motion', theta/.0012, -height/(.0012*1.4), 'wait', 100)
+        elevation = math.atan2(height,1.4)
+        control('chord', 33, 'motion', 0, -elevation/mouse_gain,
+                'motion', theta*math.cos(elevation)/mouse_gain, 0, 'wait', 100)
     def finish_control(previous):
         wait_for(lambda: logs().count('spatial control end') > previous, 'spatial frame release')
         lines = [line for line in logs().splitlines() if 'spatial control end' in line]
@@ -323,7 +339,7 @@ try:
     aim(450, -20)
     control('button', 272, 1, 'motion', 80, 30, 'axis', 10, 'wait', 120, 'button', 272, 0)
     assert finish_control(before) == desktop
-    assert pose['angle'] > .05 and pose['height'] < 0 and pose['distance'] > 1.4, pose
+    assert pose['angle'] > .02 and pose['height'] < 0 and pose['distance'] > 1.4, pose
     assert not [e for e in events()[before_events:] if e['kind'] in ('press','release','scroll')]
     image_data = subprocess.check_output(['grim','-o','WL-2','-t','png','-'],env=env,timeout=5)
     (RUN / 'spatial-controls.png').write_bytes(image_data)

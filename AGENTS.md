@@ -38,6 +38,15 @@ releases must be consumed even after mode exit or view destruction. Identify
 grab targets by creation ID/workspace, not retained view pointers. Keep popup/
 shadow capture extents inside the frame and head pose out of manipulation math.
 
+Pointer gain comes from the renderer viewport width at the fixed 40° horizontal
+FOV, not the old .0012 radians/count. `amouse_move` integrates angular elevation
+and elevation-compensated horizontal travel without head input, including packet
+splitting and vertical limits. Empty-space pointer positions stay on the cylinder.
+The displayed glyph uses constant viewport pixel size with its hotspot at the
+world hit. Super+Alt+Minus/Equal changes speed in-session; Super+Alt+0 restores
+the configured `pointer_speed` (default 1, range .25–3). Viewport resize forces a
+new scene acknowledgment before clicking. These compositor changes need login.
+
 ## Layout
 
 - `native/common/`: shared private protocol and world-space math.

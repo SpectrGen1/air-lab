@@ -78,7 +78,7 @@ struct app {
     uint32_t pose_sequence;
     bool have_pose_sequence;
     bool running, configured, frame_due, committed, pose_valid, zero_valid, active;
-    int width, height;
+    int width, height, ready_width, ready_height;
     uint64_t pose_stamp, last_frame, last_pose_report;
     double raw[9], zero[9], basis[9];
     struct air_vec pointer;
@@ -717,7 +717,8 @@ static void draw(struct app *a) {
     }
     glDisable(GL_DEPTH_TEST);
     if (a->cursor && a->cursor_w > 0) {
-        double scale = .0009 / fmax(1, a->cursor_scale);
+        double scale =
+            acursor_pixel_scale(adot(a->pointer, abaxis(a->basis, 2)), a->width, a->cursor_scale);
         struct air_vec right = abaxis(a->basis, 0), up = abaxis(a->basis, 1);
         struct air_vec tl = aadd(
             a->pointer, aadd(ascale(right, -a->cursor_x * scale), ascale(up, a->cursor_y * scale)));
@@ -750,11 +751,13 @@ static void draw(struct app *a) {
         a->running = false;
         return;
     }
-    if (!a->last_frame) {
+    if (a->width != a->ready_width || a->height != a->ready_height) {
         struct air_packet m = {.type = AIR_READY};
         m.data.ready.width = a->width;
         m.data.ready.height = a->height;
         packet(a, &m);
+        a->ready_width = a->width;
+        a->ready_height = a->height;
     }
     a->last_frame = now_ns();
     if (a->pose_valid) {
