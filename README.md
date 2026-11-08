@@ -7,8 +7,9 @@ A native spatial desktop integration and a retained browser interaction study fo
 The native labwc integration is built and tested; its session launcher is staged
 for the next login. Save your work, log out once, and log back in to activate it.
 Subsequent spatial toggles keep your existing applications connected to the same
-labwc. Leave the Air motionless after login/reconnection until the **Glasses ready**
-notification appears (at least one minute after connection).
+labwc. Keep the Air on and hold your head still after login/reconnection until the
+**Glasses ready** notification appears (at least one minute after connection).
+Taking them off can put the sensors to sleep and restart warmup.
 The latest compositor update uses smaller panels and a level horizon, and keeps
 a healthy preview open without a session timer. It requires a new login to take
 effect; actual feed loss or renderer failure still restores the desktop.
@@ -41,7 +42,7 @@ python3 scripts/run-lab.py                  # simulator + browser
 python3 scripts/run-lab.py --pose           # local Air tracker + preview + browser
 ```
 
-Use one command at a time. Leave the glasses motionless on a table for 60 seconds after
+Use one command at a time. Keep the glasses on and hold your head still for 60 seconds after
 starting tracking; the launcher opens the browser after this warmup. Move the browser to the Air, select **Glasses test · 40°**,
 click **Fullscreen**, face forward and press **R**. **Esc** releases the mouse;
 **Ctrl+C** in the launching terminal stops the preview and its tracker.

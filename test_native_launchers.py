@@ -39,10 +39,42 @@ class TestNativeLaunchers(unittest.TestCase):
         state.update(ready_at=151, calibrated=False)
         notifications.observe(state, 91)
         notifications.observe(state, 160)
-        self.assertEqual(len(messages), 3)
+        self.assertEqual(len(messages), 4)
         state.update(calibrated=True)
         notifications.observe(state, 161)
-        self.assertEqual(len(messages), 4)
+        self.assertEqual(len(messages), 5)
+        self.assertIn('Keep the glasses on', messages[0])
+        self.assertIn('disconnected or asleep', messages[2])
+        notifications.observe(dict(connected=False), 162)
+        notifications.observe(dict(connected=False), 163)
+        self.assertEqual(len(messages), 6)
+        self.assertIn('disconnected or asleep', messages[-1])
+
+    def test_notification_delivery_retries_and_replaces_persistently(self):
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location('native_session', ROOT / 'scripts/start-native-desktop.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        notifications = module.TrackerNotifications()
+        state = dict(connected=True, calibrated=True, source_port=12345, ready_at=60, pid=1)
+        results = [subprocess.CompletedProcess([], 1, '', 'bus unavailable'),
+                   subprocess.CompletedProcess([], 0, '42\n', ''),
+                   subprocess.CompletedProcess([], 0, '42\n', ''),
+                   subprocess.CompletedProcess([], 0, '42\n', '')]
+        with patch.dict(os.environ, {}, clear=True), patch.object(module.subprocess, 'run', side_effect=results) as run:
+            notifications.observe(state, 0)
+            notifications.observe(state, 1)
+            self.assertEqual(run.call_count, 1)
+            notifications.observe(state, 5)
+            notifications.observe(state, 60)
+            notifications.observe(dict(connected=False), 61)
+            calls = [call.args[0] for call in run.call_args_list]
+            self.assertEqual(len(calls), 4)
+            for command in calls:
+                self.assertEqual(command[command.index('-t') + 1], '0')
+            self.assertEqual(calls[2][calls[2].index('-r') + 1], '42')
+            self.assertIn('Glasses ready', calls[2][-1])
+            self.assertIn('disconnected or asleep', calls[3][-1])
 
     def test_tracker_lock_prevents_reconfiguring_running_reader(self):
         with tempfile.TemporaryDirectory() as directory:

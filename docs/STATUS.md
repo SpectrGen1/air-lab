@@ -255,3 +255,28 @@ monotonic timestamps, including elapsed waits, so GTK menu timing is realistic.
 Evidence: `.local/native-check/1794161349588093884/` (GLES) and
 `.local/native-check/1794161373431958510/` (Vulkan). Physical app acceptance is
 still pending the updated login; XWayland override-redirect menus are unvalidated.
+
+
+## Wear/sleep warmup and persistent notifications
+
+The user reported that the glasses start tracking when worn, sleep off-face on
+the table, then reconnect and restart calibration when worn again. Driver logs
+confirm reconnect/calibration cycles; no proximity event is exposed to our
+supervisor, so disconnection is labeled “disconnected or asleep,” not assumed to
+be a confirmed wear event. The supported instruction is now to keep them on and
+hold the head still for the full minute. A real reconnect still resets readiness.
+Factory calibration preservation and tracking-loss recovery remain intact.
+
+The workstation's mako config also had `ignore-timeout=1`, forcing five-second
+expiry even for persistent notices. Installation adds an app-specific exception
+and backs up that config. Tracker notices now request persistence, replace their
+previous notification by ID, replace stale readiness with disconnection guidance,
+and retry failed delivery. Unit tests cover expiry requests, replacement IDs,
+delivery retries, warmup/calibration/source-port gates and reconnects. Ten Python
+checks and the tracker regressions pass; native binaries are unchanged and retain
+their previous passing integration hashes. The selected release is
+`.local/releases/c99544ac08835660`; the live handoff applied it without replacing
+the compositor or desktop clients. The user kept the glasses on through warmup
+and confirmed that “Glasses ready” appeared and stayed visible. The monitor log
+also records successful warmup/ready notification delivery. This verifies the
+notification workflow, not a new long-term drift or sleep/recovery acceptance.

@@ -42,7 +42,12 @@ TrackerNotifications in the session supervisor owns warmup/ready notifications,
 including when no preview is open; the handoff monitor reuses it. Observe on
 every loop, since the minute can expire without a readiness-file value changing.
 Require connection, calibration, elapsed warmup and the owned source port; notify
-once per connection. The preview wrapper deliberately emits no duplicate notice.
+once per connection. Keep glasses worn and head still during warmup: the user
+observed off-face sleep/reconnect on the table. Do not retain readiness over a
+real reconnect. Notices replace one persistent notification, including a lost
+connection notice; delivery failures retry. The installer adds an Air-only mako
+rule (the workstation globally ignores app timeouts); preserve its rollback copy.
+The preview wrapper deliberately emits no duplicate notice.
 Spatial XDG popup constraints use parent-window coordinates, not sleeping output
 usable areas. Synchronize seat coordinates before presses and after summon.
 Keep the real right-click/action/Escape/outside-click test. Test input timestamps
@@ -121,7 +126,8 @@ Observed Air DP-4 at 1080p/60, extended right of Dell/LG. Recheck identities liv
 Existing udev and kanshi setup worked without changes. No packages were installed.
 
 Use one IMU reader. The session supervisor owns tracking and waits a full minute
-of instructed stationary warmup after USB connection before native presentation.
+of instructed stationary warmup while worn after connection before native
+presentation.
 Recenter is not bias calibration. Initial severe incoming-pose drift was reduced
 by timestamp rebasing, but the 2026-11-08 native test found another cause: XREAL
 connection blindly averages the first 1,000 samples into calibration. Motion at

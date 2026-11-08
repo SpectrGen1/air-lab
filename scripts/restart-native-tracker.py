@@ -179,7 +179,7 @@ def main():
         monitor = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--supervise'],
                                    start_new_session=True, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
     print(f'Tracker handoff monitor {monitor.pid}; log: {log_path}')
-    print('Leave the Air resting for its fresh stationary warmup.')
+    print('Keep the Air on and hold your head still for its fresh one-minute warmup.')
 
 
 if __name__ == '__main__':

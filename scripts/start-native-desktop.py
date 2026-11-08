@@ -38,41 +38,59 @@ def tracker_source_port(pid):
 
 
 class TrackerNotifications:
-    """Announce each connection's warmup and ready transition, even without a preview."""
+    """Keep one persistent notice in sync with the current tracker connection."""
     def __init__(self, send=None):
         self.send = send or self.notify
-        self.connection = None
-        self.announced_ready = False
+        self.notification_id = 0
+        self.seen_connection = False
+        self.last_announcement = None
+        self.retry_at = 0
 
-    @staticmethod
-    def notify(body):
+    def notify(self, body):
         if os.environ.get('AIR_NATIVE_TEST_ID'):
-            return
+            return True
         try:
-            subprocess.run(['notify-send', '-a', 'Air Spatial Lab', '-t', '8000',
-                            'Air spatial mode', body], check=False, timeout=2)
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+            result = subprocess.run(
+                ['notify-send', '-a', 'Air Spatial Lab', '-t', '0', '-p',
+                 '-r', str(self.notification_id), 'Air spatial mode', body],
+                capture_output=True, text=True, check=False, timeout=2)
+            if result.returncode:
+                print('Air tracker notification failed: ' + result.stderr.strip(), file=sys.stderr)
+                return False
+            self.notification_id = int(result.stdout.strip())
+            print('Air tracker notice: ' + body, flush=True)
+            return True
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            print('Air tracker notification failed: ' + str(error), file=sys.stderr)
+            return False
 
     def observe(self, state, now):
         if not state.get('connected'):
-            self.connection = None
-            self.announced_ready = False
-            return
-        connection = (state.get('pid'), state.get('ready_at'))
-        ready = (state.get('calibrated') and state.get('source_port')
-                 and now >= state.get('ready_at', float('inf')))
-        if connection != self.connection:
-            self.connection = connection
-            self.announced_ready = False
-            if not ready:
-                self.send('Leave the glasses motionless on a table for one minute. '
-                          'You will be notified when tracking is ready.')
-        if ready and not self.announced_ready:
-            self.send('Glasses ready. Calibration and the one-minute warmup are complete. '
-                      'Put them on; once the preview is visible, face forward and '
-                      'press Super+Alt+R to recenter.')
-            self.announced_ready = True
+            if not self.seen_connection:
+                return
+            announcement = ('disconnected',)
+            body = ('Tracking disconnected or asleep. Put the glasses on and keep them on. '
+                    'When tracking reconnects, hold your head still for the new one-minute '
+                    'warmup; taking them off may put them back to sleep.')
+        else:
+            self.seen_connection = True
+            ready = (state.get('calibrated') and state.get('source_port')
+                     and now >= state.get('ready_at', float('inf')))
+            announcement = (state.get('pid'), state.get('ready_at'), bool(ready))
+            if ready:
+                body = ('Glasses ready. The one-minute tracking warmup is complete. '
+                        'Keep the glasses on; once the preview is visible, face forward '
+                        'and press Super+Alt+R to recenter.')
+            else:
+                body = ('Keep the glasses on and hold your head still for one minute. '
+                        'Taking them off may put the sensors to sleep and restart warmup. '
+                        'This notice will change to Glasses ready when warmup completes.')
+        if announcement != self.last_announcement and now >= self.retry_at:
+            if self.send(body) is False:
+                self.retry_at = now + 5
+            else:
+                self.last_announcement = announcement
+                self.retry_at = 0
 
 
 def main():

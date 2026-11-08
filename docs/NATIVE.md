@@ -14,12 +14,18 @@ Replacing a running compositor cannot preserve its existing client connections.
 After this initial login, entering/exiting spatial mode keeps applications in
 that same labwc process; it does not reconnect or relaunch them.
 
-Leave the Air motionless on a table for a minute after login or USB reconnection.
+Keep the Air on and hold your head still for a minute after login or reconnection.
+The user observed that removing them can put tracking to sleep; putting them back
+on then starts a new connection and warmup. Do not wait on the table if they sleep.
 The session announces the warmup when a tracker connection starts, then sends
 **Glasses ready** once calibration, the full one-minute wait and the child-owned
 UDP socket are all ready. This happens even without requesting a preview, once
 per connection; a reconnect starts a new warmup/ready pair. The preview launcher
-does not emit a duplicate warmup notice.
+does not emit a duplicate warmup notice. Notices persist until dismissed or
+replaced; disconnection replaces a stale warmup/ready notice. The installer adds
+an Air-only mako rule to honor notification timeouts, preserving a rollback copy
+in `.local/rollback/mako.before-air-notifications-*`. Other apps retain their
+existing notification settings. Delivery failures are logged and retried.
 Tracking starts with the session and is stopped when that session ends. A
 readiness file under the private user runtime directory tracks connection,
 calibration, warmup and the child-owned UDP socket; requesting spatial mode early

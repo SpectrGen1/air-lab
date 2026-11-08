@@ -49,7 +49,7 @@ def main():
         env[key] = 'http://127.0.0.1:9'
     env['no_proxy'] = env['NO_PROXY'] = '127.0.0.1,localhost'
     print('Tracker: UDP only at 127.0.0.1:' + str(options.udp_port), flush=True)
-    print('Leave the glasses motionless on a table for 60 seconds to calibrate.', flush=True)
+    print('Keep the glasses on and hold your head still for the 60-second warmup.', flush=True)
     print('Log: ' + str(Path(env['XDG_STATE_HOME']) / 'xr_driver/driver.log'), flush=True)
     # exec means Ctrl+C, timeout, and the supervising terminal target the driver.
     os.execve(binary, [str(binary)], env)

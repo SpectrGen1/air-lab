@@ -18,6 +18,30 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def configure_notifications(rollback_dir, date):
+    """Respect persistence for Air notices without changing other mako popups."""
+    path = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'mako/config'
+    if not path.is_file():
+        return
+    marker = '# Air Spatial Lab tracker readiness'
+    rule = (marker + '\n[app-name="Air Spatial Lab"]\n'
+            'ignore-timeout=0\ndefault-timeout=0\n')
+    before = path.read_text()
+    if marker in before:
+        if not before.endswith(rule):
+            raise SystemExit('Air notification rule was edited; inspect the mako config before installing.')
+        return
+    backup = rollback_dir / ('mako.before-air-notifications-' + date)
+    shutil.copy2(path, backup)
+    path.write_text(before.rstrip() + '\n\n' + rule)
+    if shutil.which('makoctl'):
+        result = subprocess.run(['makoctl', 'reload'], capture_output=True, text=True)
+        if result.returncode:
+            path.write_text(before)
+            raise SystemExit('Could not reload mako; restored its config: ' + result.stderr.strip())
+    print('Air notices stay visible until replaced/dismissed. Mako backup: ' + str(backup))
+
+
 def main():
     if os.geteuid() == 0:
         raise SystemExit('Run as the desktop user, without sudo.')
@@ -97,6 +121,7 @@ def main():
         config['pointer_speed'] = prior.get('pointer_speed', 1)
     else:
         config.update(panel_scale=2 / 3, head_roll=False, pointer_speed=1)
+    configure_notifications(rollback_dir, date)
     install_config.write_text(json.dumps(config, indent=2) + '\n')
     temp.replace(entrypoint)
     fallback = Path.home() / '.local/bin/air-spatial-stock'
