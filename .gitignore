@@ -1,0 +1,8 @@
+.local/
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+*.log
+/editor-test.png
+/*.zip

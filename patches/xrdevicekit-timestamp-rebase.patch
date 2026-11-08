@@ -1,0 +1,31 @@
+diff --git a/src/device_imu.c b/src/device_imu.c
+index 004586b..5336d95 100644
+--- a/src/device_imu.c
++++ b/src/device_imu.c
+@@ -331,6 +331,7 @@ device_imu_error_type device_imu_open(device_imu_type* device, device_imu_event_
+ 	};
+ 	
+ 	FusionAhrsSetSettings((FusionAhrs*) device->ahrs, &settings);
++	device->last_timestamp = 0; /* Rebase on the first live sample. */
+ 	return DEVICE_IMU_ERROR_NO_ERROR;
+ }
+ 
+@@ -815,9 +816,16 @@ device_imu_error_type device_imu_read(device_imu_type* device, int timeout) {
+ 		return DEVICE_IMU_ERROR_NO_ERROR;
+ 	}
+ 
+-	const uint64_t delta_ns = s.timestamp_ns - device->last_timestamp;
+-	const float deltaTime = (float)((double)delta_ns / 1e9);
++	const uint64_t previous_timestamp = device->last_timestamp;
+ 	device->last_timestamp = s.timestamp_ns;
++	/* Device uptime and stream gaps are not integration time. Rebase before
++	 * advancing either the AHRS or its stationary bias estimator. */
++	if (previous_timestamp == 0 || s.timestamp_ns <= previous_timestamp ||
++		s.timestamp_ns - previous_timestamp > 100000000ULL) {
++		return DEVICE_IMU_ERROR_NO_ERROR;
++	}
++	const uint64_t delta_ns = s.timestamp_ns - previous_timestamp;
++	const float deltaTime = (float)((double)delta_ns / 1e9);
+ 
+ 	FusionVector gyroscope;
+ 	FusionVector accelerometer;
