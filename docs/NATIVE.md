@@ -21,8 +21,9 @@ The session announces the warmup when a tracker connection starts, then sends
 **Glasses ready** once calibration, the full one-minute wait and the child-owned
 UDP socket are all ready. This happens even without requesting a preview, once
 per connection; a reconnect starts a new warmup/ready pair. The preview launcher
-does not emit a duplicate warmup notice. Notices persist until dismissed or
-replaced; disconnection replaces a stale warmup/ready notice. The installer adds
+does not emit a duplicate warmup notice. Warmup/disconnection notices persist
+until dismissed or replaced; **Glasses ready** uses the normal five-second
+notification timeout. Disconnection replaces a stale warmup/ready notice. The installer adds
 an Air-only mako rule to honor notification timeouts, preserving a rollback copy
 in `.local/rollback/mako.before-air-notifications-*`. Other apps retain their
 existing notification settings. Delivery failures are logged and retried.

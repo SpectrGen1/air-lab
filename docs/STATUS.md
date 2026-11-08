@@ -280,3 +280,9 @@ the compositor or desktop clients. The user kept the glasses on through warmup
 and confirmed that “Glasses ready” appeared and stayed visible. The monitor log
 also records successful warmup/ready notification delivery. This verifies the
 notification workflow, not a new long-term drift or sleep/recovery acceptance.
+
+
+The user subsequently preferred normal expiry for the ready notice. The Air-only
+mako rule now lets “Glasses ready” expire after the usual five seconds, including
+in the running handoff. Warmup/disconnection guidance still persists. No tracker
+restart or new calibration is required for this notification-only change.

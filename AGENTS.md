@@ -44,8 +44,9 @@ every loop, since the minute can expire without a readiness-file value changing.
 Require connection, calibration, elapsed warmup and the owned source port; notify
 once per connection. Keep glasses worn and head still during warmup: the user
 observed off-face sleep/reconnect on the table. Do not retain readiness over a
-real reconnect. Notices replace one persistent notification, including a lost
-connection notice; delivery failures retry. The installer adds an Air-only mako
+real reconnect. Notices replace one notification: warmup/lost connection persist,
+but ready expires after the normal five seconds (user preference). Delivery
+failures retry. The installer adds an Air-only mako
 rule (the workstation globally ignores app timeouts); preserve its rollback copy.
 The preview wrapper deliberately emits no duplicate notice.
 Spatial XDG popup constraints use parent-window coordinates, not sleeping output
