@@ -12,6 +12,7 @@ if [ "$(git -C "$labwc_src" rev-parse HEAD)" != "$labwc_rev" ]; then
     echo "Unexpected labwc revision; expected $labwc_rev" >&2
     exit 1
 fi
+cp "$lab_root/native/protocols/air-widget-v1.xml" "$labwc_src/protocols/"
 native_patch="$lab_root/patches/labwc-native-spatial.patch"
 if git -C "$labwc_src" apply --reverse --check "$native_patch" 2>/dev/null; then
     echo 'Native integration patch already applied.'
@@ -19,18 +20,18 @@ else
     git -C "$labwc_src" apply --check "$native_patch"
     git -C "$labwc_src" apply "$native_patch"
 fi
-cp "$lab_root/native/labwc/air-spatial.c" "$labwc_src/src/"
-cp "$lab_root/native/labwc/air-spatial.h" "$lab_root"/native/common/air-*.h "$labwc_src/include/"
+cp "$lab_root"/native/labwc/*.c "$labwc_src/src/"
+cp "$lab_root"/native/labwc/*.h "$lab_root"/native/common/air-*.h "$labwc_src/include/"
 if [ -f "$lab_root/.local/build/labwc/build.ninja" ]; then
-    meson setup --reconfigure "$lab_root/.local/build/labwc" "$labwc_src" -Dair-spatial=enabled -Dman-pages=disabled -Dsystemd-session=disabled
+    meson setup --reconfigure "$lab_root/.local/build/labwc" "$labwc_src" --buildtype=debugoptimized -Dair-spatial=enabled -Dman-pages=disabled -Dsystemd-session=disabled
 else
-    meson setup "$lab_root/.local/build/labwc" "$labwc_src" -Dair-spatial=enabled -Dman-pages=disabled -Dsystemd-session=disabled
+    meson setup "$lab_root/.local/build/labwc" "$labwc_src" --buildtype=debugoptimized -Dair-spatial=enabled -Dman-pages=disabled -Dsystemd-session=disabled
 fi
 ninja -C "$lab_root/.local/build/labwc" -j 8
 if [ -f "$lab_root/.local/build/air-native/build.ninja" ]; then
-    meson setup --reconfigure "$lab_root/.local/build/air-native" "$lab_root/native" -Dlayer_protocol="$labwc_src/protocols/wlr-layer-shell-unstable-v1.xml"
+    meson setup --reconfigure "$lab_root/.local/build/air-native" "$lab_root/native" --buildtype=debugoptimized -Dlayer_protocol="$labwc_src/protocols/wlr-layer-shell-unstable-v1.xml"
 else
-    meson setup "$lab_root/.local/build/air-native" "$lab_root/native" -Dlayer_protocol="$labwc_src/protocols/wlr-layer-shell-unstable-v1.xml"
+    meson setup "$lab_root/.local/build/air-native" "$lab_root/native" --buildtype=debugoptimized -Dlayer_protocol="$labwc_src/protocols/wlr-layer-shell-unstable-v1.xml"
 fi
 ninja -C "$lab_root/.local/build/air-native" -j 8
 meson test -C "$lab_root/.local/build/air-native" --print-errorlogs

@@ -33,3 +33,16 @@ cc -std=c11 -Wall -Wextra -I "$test_build" "$lab_root/native/tests/lock.c" \
 cc -std=c11 -Wall -Wextra -I "$test_build" "$lab_root/native/tests/disconnect.c" \
  "$test_build/wlr-foreign-toplevel-management-unstable-v1-protocol.c" \
  $(pkg-config --cflags --libs wayland-client) -o "$test_build/air-test-disconnect"
+
+for entry in "air-widget-v1:$lab_root/native/protocols/air-widget-v1.xml" \
+ "ext-image-capture-source-v1:$protocol_dir/staging/ext-image-capture-source/ext-image-capture-source-v1.xml" \
+ "ext-foreign-toplevel-list-v1:$protocol_dir/staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml"; do
+    name=${entry%%:*}
+    xml=${entry#*:}
+    wayland-scanner client-header "$xml" "$test_build/$name-protocol.h"
+    wayland-scanner private-code "$xml" "$test_build/$name-protocol.c"
+done
+cc -std=c11 -Wall -Wextra -Wno-unused-parameter -I "$test_build" "$lab_root/native/tests/widget-auth.c" \
+ "$test_build/air-widget-v1-protocol.c" "$test_build/ext-image-capture-source-v1-protocol.c" \
+ "$test_build/ext-foreign-toplevel-list-v1-protocol.c" $(pkg-config --cflags --libs wayland-client) \
+ -o "$test_build/air-test-widget-auth"

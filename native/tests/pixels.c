@@ -6,8 +6,10 @@ int main(void) {
     const unsigned char rgb[] = {255, 0, 0,   9, 9, 9, 9, 9, 9, 9, 9, 9,
                                  0,   0, 255, 9, 9, 9, 9, 9, 9, 9, 9, 9};
     unsigned char out[8];
-    assert(air_pixel_stride(WL_SHM_FORMAT_BGR888, 1) == 12);
-    assert(air_pixel_stride(WL_SHM_FORMAT_BGR888, 1715) == 5148);
+    assert(air_pixel_stride(WL_SHM_FORMAT_BGR888, 1) == 3);
+    assert(air_pixel_stride(WL_SHM_FORMAT_BGR888, 1715) == 5145);
+    assert(air_pixel_stride(WL_SHM_FORMAT_BGR888,UINT32_MAX)==0);
+    /* Conversion still accepts padded input even though capture requests tight rows. */
     air_pixels_rgba(out, rgb, 1, 2, 12, WL_SHM_FORMAT_BGR888);
     const unsigned char expected[] = {255, 0, 0, 255, 0, 0, 255, 255};
     assert(memcmp(out, expected, sizeof(out)) == 0);

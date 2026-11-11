@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Stage tested native binaries for the next login; never restart the current desktop."""
+import argparse
 from datetime import datetime
 import hashlib
 import json
@@ -51,6 +52,10 @@ def configure_notifications(rollback_dir, date):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--focused-validation', type=Path,
+                        help='Use explicitly limited quiet validation instead of graphical integration')
+    options = parser.parse_args()
     if os.geteuid() == 0:
         raise SystemExit('Run as the desktop user, without sudo.')
     binaries = {'labwc': BUILD / 'labwc/labwc', 'presenter': BUILD / 'air-native/air-presenter',
@@ -58,14 +63,22 @@ def main():
     for path in binaries.values():
         if not path.is_file():
             raise SystemExit('Missing build: ' + str(path))
-    tests = sorted((ROOT / '.local/native-check').iterdir(), key=lambda path: path.name)
-    if not tests or not (tests[-1] / 'result.json').exists():
-        raise SystemExit('The most recent native integration test has not passed.')
-    result = json.loads((tests[-1] / 'result.json').read_text())
-    if not result.get('passed') or any(result[key + '_sha256'] != digest(binaries[key])
-                                       for key in ('labwc', 'presenter')):
-        raise SystemExit('Native binaries changed since the last passing integration test.')
-    launchers = ['start-native-desktop.py', 'start-native-presenter.py', 'run-tracker.py']
+    if options.focused_validation:
+        validation = options.focused_validation.resolve()
+        result = json.loads((validation / 'result.json').read_text())
+        if result.get('kind') != 'focused' or result.get('graphical_tests_run') is not False:
+            raise SystemExit('Expected an explicitly limited focused validation record.')
+        keys = ('labwc', 'presenter', 'tracker')
+    else:
+        tests = sorted((ROOT / '.local/native-check').iterdir(), key=lambda path: path.name)
+        if not tests or not (tests[-1] / 'result.json').exists():
+            raise SystemExit('The most recent native integration test has not passed.')
+        validation = tests[-1]
+        result = json.loads((validation / 'result.json').read_text())
+        keys = ('labwc', 'presenter')
+    if not result.get('passed') or any(result[key + '_sha256'] != digest(binaries[key]) for key in keys):
+        raise SystemExit('Native binaries changed since the selected passing validation.')
+    launchers = ['start-native-desktop.py', 'start-native-presenter.py', 'run-tracker.py', 'start-native-widgets.py', 'native_stereo.py', 'native_events.py']
     release_inputs = [*binaries.values(), *(ROOT / 'scripts' / name for name in launchers)]
     release_id = hashlib.sha256(''.join(digest(path) for path in release_inputs).encode()).hexdigest()[:16]
     release = ROOT / '.local/releases' / release_id
@@ -104,7 +117,7 @@ def main():
         previous = backup.read_text()
         if previous.count(original) != 1:
             raise SystemExit('The original stock backup does not match the inspected launcher.')
-    command = 'dbus-run-session env ' + shlex.quote('AIR_LAB_ROOT=' + str(ROOT)) + ' /usr/bin/python3 ' + shlex.quote(str(release / 'scripts/start-native-desktop.py')) + ' -V >>"$log" 2>&1'
+    command = 'dbus-run-session env AIR_SESSION_LOG="$log" ' + shlex.quote('AIR_LAB_ROOT=' + str(ROOT)) + ' /usr/bin/python3 ' + shlex.quote(str(release / 'scripts/start-native-desktop.py')) + ' -V >>"$log" 2>&1'
     updated = previous.replace(original, command).replace(
         "printf 'command=dbus-run-session labwc -V\\n'", "printf 'command=Air Spatial Lab native session; AIR_USE_STOCK=1 selects stock labwc\\n'")
     temp = entrypoint.with_name(entrypoint.name + '.air-new')
@@ -115,9 +128,12 @@ def main():
     config.update({'output': 'DP-4', 'udp_port': 4243, 'power': True,
                    'presenter_launcher': str(release / 'scripts/start-native-presenter.py'),
                    'tracker_launcher': str(release / 'scripts/run-tracker.py'),
+                   'widget_launcher': str(release / 'scripts/start-native-widgets.py'),
+                   'widgets': True,
                    'entrypoint': str(entrypoint), 'backup': str(backup),
                    'entrypoint_sha256': hashlib.sha256(updated.encode()).hexdigest(),
-                   'validation': str(tests[-1])})
+                   'validation': str(validation),
+                   'validation_kind': result.get('kind', 'graphical integration')})
     install_config = ROOT / '.local/native-install.json'
     if install_config.exists():
         prior = json.loads(install_config.read_text())
@@ -127,14 +143,26 @@ def main():
         config['panel_scale'] = prior.get('panel_scale', 2 / 3)
         config['head_roll'] = prior.get('head_roll', False)
         config['pointer_speed'] = prior.get('pointer_speed', 1)
+        config['auto_start'] = prior.get('auto_start', True)
+        config['reserved_display'] = prior.get('reserved_display', False)
+        config['stereo'] = prior.get('stereo', True)
+        config['ipd_mm'] = prior.get('ipd_mm', 64)
+        for key in ('ipd_center_mm','ipd_baseline_mm','ipd_measurement'):
+            if key in prior: config[key] = prior[key]
+        config['widgets'] = prior.get('widgets', True)
     else:
-        config.update(panel_scale=2 / 3, head_roll=False, pointer_speed=1)
+        config.update(panel_scale=2 / 3, head_roll=False, pointer_speed=1, auto_start=True, stereo=True, ipd_mm=64, reserved_display=False)
     configure_notifications(rollback_dir, date)
     install_config.write_text(json.dumps(config, indent=2) + '\n')
     temp.replace(entrypoint)
     fallback = Path.home() / '.local/bin/air-spatial-stock'
     fallback.write_text('#!/bin/sh\nexport AIR_USE_STOCK=1\nexec ' + shlex.quote(str(entrypoint)) + '\n')
     fallback.chmod(0o755)
+    if options.focused_validation:
+        if result.get('workspace_headless'):
+            print('Quiet focused checks and isolated headless workspace integration passed.')
+        else:
+            print('Validation is limited to quiet focused checks; graphical integration was not run.')
     print('Staged native session for the next login. Current desktop is unchanged.')
     print('Release: ' + str(release))
     print('Rollback backup: ' + str(backup))

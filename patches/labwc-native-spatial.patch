@@ -1,3 +1,16 @@
+diff --git a/include/view.h b/include/view.h
+index 46943ab..ba8aaa3 100644
+--- a/include/view.h
++++ b/include/view.h
+@@ -103,6 +103,8 @@ struct mappable {
+ struct view_size_hints {
+ 	int min_width;
+ 	int min_height;
++	int max_width;
++	int max_height;
+ 	int width_inc;
+ 	int height_inc;
+ 	int base_width;
 diff --git a/meson.build b/meson.build
 index c1f83a5..5209729 100644
 --- a/meson.build
@@ -20,6 +33,23 @@ index e059220..98bfda8 100644
  option('test', type: 'feature', value: 'disabled', description: 'Run tests')
 +option('air-spatial', type: 'feature', value: 'disabled', description: 'Native spatial mode experiment')
  option('sections', type: 'feature', value: 'disabled', description: 'Show unused functions')
+diff --git a/protocols/meson.build b/protocols/meson.build
+index 928bd60..eee30a3 100644
+--- a/protocols/meson.build
++++ b/protocols/meson.build
+@@ -18,6 +18,12 @@ server_protocols = [
+ 	'wlr-output-power-management-unstable-v1.xml',
+ ]
+ 
++if get_option('air-spatial').enabled()
++  server_protocols += ['air-widget-v1.xml',
++    wl_protocol_dir / 'staging/ext-image-capture-source/ext-image-capture-source-v1.xml',
++    wl_protocol_dir / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml']
++endif
++
+ server_protos_src = []
+ server_protos_headers = []
+ 
 diff --git a/src/desktop.c b/src/desktop.c
 index 57ef9e3..6192e07 100644
 --- a/src/desktop.c
@@ -41,7 +71,7 @@ index 57ef9e3..6192e07 100644
  
  	/* Prevent drag icons to be on top of the hitbox detection */
 diff --git a/src/dnd.c b/src/dnd.c
-index 5d7d050..7071a66 100644
+index 5d7d050..6e3cc43 100644
 --- a/src/dnd.c
 +++ b/src/dnd.c
 @@ -1,4 +1,5 @@
@@ -50,20 +80,40 @@ index 5d7d050..7071a66 100644
  #include "dnd.h"
  #include <assert.h>
  #include <wlr/types/wlr_data_device.h>
-@@ -16,6 +17,11 @@ handle_drag_request(struct wl_listener *listener, void *data)
+@@ -16,7 +17,6 @@ handle_drag_request(struct wl_listener *listener, void *data)
  {
  	struct seat *seat = wl_container_of(listener, seat, drag.events.request);
  	struct wlr_seat_request_start_drag_event *event = data;
-+	if (air_spatial_active()) {
-+		air_spatial_stop("drag-and-drop desktop fallback");
-+		wlr_data_source_destroy(event->drag->source);
-+		return;
-+	}
- 
+-
  	if (wlr_seat_validate_pointer_grab_serial(
  			seat->wlr_seat, event->origin, event->serial)) {
+ 		wlr_seat_start_pointer_drag(seat->wlr_seat, event->drag,
+@@ -40,7 +40,10 @@ handle_drag_start(struct wl_listener *listener, void *data)
+ 		/* Cleans up automatically on drag->icon->events.destroy */
+ 		wlr_scene_drag_icon_create(seat->drag.icons, drag->icon);
+ 		wlr_scene_node_raise_to_top(&seat->drag.icons->node);
+-		wlr_scene_node_set_enabled(&seat->drag.icons->node, true);
++		wlr_scene_node_set_enabled(&seat->drag.icons->node, !air_spatial_active());
++	}
++	if (air_spatial_active()) {
++		air_spatial_cursor_name("grabbing");
+ 	}
+ 	wl_signal_add(&drag->events.destroy, &seat->drag.events.destroy);
+ }
+@@ -64,6 +67,11 @@ handle_drag_destroy(struct wl_listener *listener, void *data)
+ 	 * refocus the current surface under the cursor because keyboard focus
+ 	 * is not changed during drag.
+ 	 */
++	if (air_spatial_active()) {
++		air_spatial_cursor_name("default");
++		cursor_update_focus();
++		return;
++	}
+ 	if (!rc.focus_follow_mouse) {
+ 		return;
+ 	}
 diff --git a/src/input/cursor.c b/src/input/cursor.c
-index 5a169bd..49894f3 100644
+index 5a169bd..7504a33 100644
 --- a/src/input/cursor.c
 +++ b/src/input/cursor.c
 @@ -1,5 +1,6 @@
@@ -83,7 +133,15 @@ index 5a169bd..49894f3 100644
  		wlr_cursor_set_surface(seat->cursor, event->surface,
  			event->hotspot_x, event->hotspot_y);
  	}
-@@ -387,7 +391,7 @@ cursor_set(struct seat *seat, enum lab_cursors cursor)
+@@ -244,6 +248,7 @@ handle_request_set_shape(struct wl_listener *listener, void *data)
+ 		return;
+ 	}
+ 
++	if (air_spatial_cursor_name(shape_name)) { return; }
+ 	wlr_log(WLR_DEBUG, "set xcursor to shape %s", shape_name);
+ 	wlr_cursor_set_xcursor(seat->cursor, seat->xcursor_manager, shape_name);
+ }
+@@ -387,7 +392,7 @@ cursor_set(struct seat *seat, enum lab_cursors cursor)
  		return;
  	}
  
@@ -92,7 +150,7 @@ index 5a169bd..49894f3 100644
  		wlr_cursor_set_xcursor(seat->cursor, seat->xcursor_manager,
  			cursor_names[cursor]);
  	}
-@@ -408,6 +412,10 @@ cursor_set_visible(struct seat *seat, bool visible)
+@@ -408,6 +413,10 @@ cursor_set_visible(struct seat *seat, bool visible)
  void
  cursor_update_image(struct seat *seat)
  {
@@ -103,7 +161,7 @@ index 5a169bd..49894f3 100644
  	enum lab_cursors cursor = seat->server_cursor;
  
  	if (!seat->cursor_visible) {
-@@ -677,7 +685,7 @@ cursor_process_motion(uint32_t time, double *sx, double *sy)
+@@ -677,7 +686,7 @@ cursor_process_motion(uint32_t time, double *sx, double *sy)
  	struct cursor_context notified_ctx = {0};
  	cursor_update_common(&ctx, &notified_ctx);
  
@@ -112,7 +170,7 @@ index 5a169bd..49894f3 100644
  		/*
  		 * If followMouse=yes, entering a surface or view updates
  		 * keyboard focus. Note that moving the cursor between a
-@@ -711,7 +719,7 @@ _cursor_update_focus(void)
+@@ -711,7 +720,7 @@ _cursor_update_focus(void)
  	/* Focus surface under cursor if it isn't already focused */
  	struct cursor_context ctx = get_cursor_context();
  
@@ -121,18 +179,39 @@ index 5a169bd..49894f3 100644
  			&& !rc.focus_follow_mouse_requires_movement) {
  		/*
  		 * Always focus the surface below the cursor when
-@@ -825,6 +833,10 @@ void
+@@ -751,6 +760,10 @@ warp_cursor_to_constraint_hint(struct seat *seat,
+ 			& WLR_POINTER_CONSTRAINT_V1_STATE_CURSOR_HINT) {
+ 		double sx = constraint->current.cursor_hint.x;
+ 		double sy = constraint->current.cursor_hint.y;
++		if (air_spatial_active()) {
++			air_spatial_constraint_hint(constraint, sx, sy);
++			return;
++		}
+ 		int x = 0;
+ 		int y = 0;
+ 		if (view && view->surface == surface) {
+@@ -825,6 +838,9 @@ void
  constrain_cursor(struct wlr_pointer_constraint_v1
  		*constraint)
  {
-+	if (constraint && air_spatial_active()) {
-+		air_spatial_stop("pointer lock/confine desktop fallback");
-+		return;
++	if (constraint && air_spatial_active() && !air_spatial_can_constrain(constraint)) {
++		air_spatial_stop("unsupported pointer constraint; restoring desktop");
 +	}
  	struct seat *seat = &server.seat;
  	if (seat->current_constraint == constraint) {
  		return;
-@@ -922,7 +934,10 @@ preprocess_cursor_motion(struct seat *seat, struct wlr_pointer *pointer,
+@@ -912,7 +928,9 @@ preprocess_cursor_motion(struct seat *seat, struct wlr_pointer *pointer,
+ 	if (cursor_locked(seat, pointer)) {
+ 		return;
+ 	}
+-	apply_constraint(seat, pointer, &dx, &dy);
++	if (!air_spatial_active()) {
++		apply_constraint(seat, pointer, &dx, &dy);
++	}
+ 
+ 	/*
+ 	 * The cursor doesn't move unless we tell it to. The cursor
+@@ -922,7 +940,10 @@ preprocess_cursor_motion(struct seat *seat, struct wlr_pointer *pointer,
  	 * NULL for the device if you want to move the cursor around
  	 * without any input.
  	 */
@@ -144,7 +223,7 @@ index 5a169bd..49894f3 100644
  	double sx, sy;
  	bool notify = cursor_process_motion(time_msec, &sx, &sy);
  	if (notify) {
-@@ -947,6 +962,8 @@ static double get_natural_scroll_factor(struct wlr_input_device *wlr_input_devic
+@@ -947,6 +968,8 @@ static double get_natural_scroll_factor(struct wlr_input_device *wlr_input_devic
  static void
  handle_motion(struct wl_listener *listener, void *data)
  {
@@ -153,7 +232,26 @@ index 5a169bd..49894f3 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits a
  	 * _relative_ pointer motion event (i.e. a delta)
-@@ -997,6 +1014,11 @@ handle_motion(struct wl_listener *listener, void *data)
+@@ -983,11 +1006,13 @@ handle_motion(struct wl_listener *listener, void *data)
+ 			pointer_axis_step * scroll_factor * delta, 0,
+ 			WL_POINTER_AXIS_SOURCE_CONTINUOUS, event->time_msec);
+ 	} else {
+-		wlr_relative_pointer_manager_v1_send_relative_motion(
+-			server.relative_pointer_manager,
+-			seat->wlr_seat, (uint64_t)event->time_msec * 1000,
+-			event->delta_x, event->delta_y, event->unaccel_dx,
+-			event->unaccel_dy);
++		if (air_spatial_relative_allowed()) {
++			wlr_relative_pointer_manager_v1_send_relative_motion(
++				server.relative_pointer_manager,
++				seat->wlr_seat, (uint64_t)event->time_msec * 1000,
++				event->delta_x, event->delta_y, event->unaccel_dx,
++				event->unaccel_dy);
++		}
+ 
+ 		preprocess_cursor_motion(seat, event->pointer,
+ 			event->time_msec, event->delta_x, event->delta_y);
+@@ -997,6 +1022,11 @@ handle_motion(struct wl_listener *listener, void *data)
  static void
  handle_motion_absolute(struct wl_listener *listener, void *data)
  {
@@ -165,7 +263,7 @@ index 5a169bd..49894f3 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits an
  	 * _absolute_ motion event, from 0..1 on each axis. This happens, for
-@@ -1171,7 +1193,20 @@ static uint32_t press_msec;
+@@ -1171,7 +1201,20 @@ static uint32_t press_msec;
  bool
  cursor_process_button_press(struct seat *seat, uint32_t button, uint32_t time_msec)
  {
@@ -186,7 +284,7 @@ index 5a169bd..49894f3 100644
  
  	/* Used on next button release to check if it can close menu or select menu item */
  	press_msec = time_msec;
-@@ -1318,6 +1353,8 @@ cursor_finish_button_release(struct seat *seat, uint32_t button)
+@@ -1318,6 +1361,8 @@ cursor_finish_button_release(struct seat *seat, uint32_t button)
  static void
  handle_button(struct wl_listener *listener, void *data)
  {
@@ -195,7 +293,7 @@ index 5a169bd..49894f3 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits a button
  	 * event.
-@@ -1326,6 +1363,7 @@ handle_button(struct wl_listener *listener, void *data)
+@@ -1326,6 +1371,7 @@ handle_button(struct wl_listener *listener, void *data)
  	struct wlr_pointer_button_event *event = data;
  	idle_manager_notify_activity(seat->wlr_seat);
  	cursor_set_visible(seat, /* visible */ true);
@@ -203,7 +301,7 @@ index 5a169bd..49894f3 100644
  
  	bool notify;
  	switch (event->state) {
-@@ -1402,6 +1440,9 @@ static bool
+@@ -1402,6 +1448,9 @@ static bool
  process_cursor_axis(enum wl_pointer_axis orientation,
  		double delta, double delta_discrete)
  {
@@ -213,7 +311,7 @@ index 5a169bd..49894f3 100644
  	struct cursor_context ctx = get_cursor_context();
  	uint32_t modifiers = keyboard_get_all_modifiers(&server.seat);
  
-@@ -1465,6 +1506,8 @@ process_cursor_axis(enum wl_pointer_axis orientation,
+@@ -1465,6 +1514,8 @@ process_cursor_axis(enum wl_pointer_axis orientation,
  static void
  handle_axis(struct wl_listener *listener, void *data)
  {
@@ -222,7 +320,7 @@ index 5a169bd..49894f3 100644
  	/*
  	 * This event is forwarded by the cursor when a pointer emits an axis
  	 * event, for example when you move the scroll wheel.
-@@ -1473,6 +1516,7 @@ handle_axis(struct wl_listener *listener, void *data)
+@@ -1473,6 +1524,7 @@ handle_axis(struct wl_listener *listener, void *data)
  	struct wlr_pointer_axis_event *event = data;
  	idle_manager_notify_activity(seat->wlr_seat);
  	cursor_set_visible(seat, /* visible */ true);
@@ -231,7 +329,7 @@ index 5a169bd..49894f3 100644
  	/* input->scroll_factor is set for pointer/touch devices */
  	assert(event->pointer->base.type == WLR_INPUT_DEVICE_POINTER
 diff --git a/src/input/keyboard.c b/src/input/keyboard.c
-index 78dfbb4..ff2ee24 100644
+index 78dfbb4..6d00ea2 100644
 --- a/src/input/keyboard.c
 +++ b/src/input/keyboard.c
 @@ -1,5 +1,6 @@
@@ -241,7 +339,18 @@ index 78dfbb4..ff2ee24 100644
  #include "input/keyboard.h"
  #include <assert.h>
  #include <stdlib.h>
-@@ -634,11 +635,17 @@ handle_key(struct wl_listener *listener, void *data)
+@@ -139,6 +140,10 @@ handle_modifiers(struct wl_listener *listener, void *data)
+ 	struct seat *seat = keyboard->base.seat;
+ 	struct wlr_keyboard *wlr_keyboard = keyboard->wlr_keyboard;
+ 
++	if (!air_spatial_ignore_host_test_input(&wlr_keyboard->base)) {
++		air_spatial_modifiers(keyboard_get_all_modifiers(seat));
++	}
++
+ 	key_state_indicator_update(seat);
+ 
+ 	if (server.input_mode == LAB_INPUT_STATE_MOVE) {
+@@ -634,11 +639,17 @@ handle_key(struct wl_listener *listener, void *data)
  	struct seat *seat = keyboard->base.seat;
  	struct wlr_keyboard_key_event *event = data;
  	struct wlr_seat *wlr_seat = seat->wlr_seat;
@@ -281,18 +390,19 @@ index dcea0c0..3a9a5db 100644
  	/*
  	 * This function sets up an interactive move or resize operation, where
 diff --git a/src/layers.c b/src/layers.c
-index eaa93f2..38cdcf2 100644
+index eaa93f2..cdc4a38 100644
 --- a/src/layers.c
 +++ b/src/layers.c
-@@ -6,6 +6,7 @@
+@@ -6,6 +6,8 @@
   * Copyright (C) 2019 Drew DeVault and Sway developers
   */
  
 +#include "air-spatial.h"
++#include "air-widgets.h"
  #include "layers.h"
  #include <assert.h>
  #include <stdbool.h>
-@@ -218,6 +219,7 @@ has_precedence(struct seat *seat, enum zwlr_layer_shell_v1_layer layer)
+@@ -218,6 +220,7 @@ has_precedence(struct seat *seat, enum zwlr_layer_shell_v1_layer layer)
  void
  layer_try_set_focus(struct seat *seat, struct wlr_layer_surface_v1 *layer_surface)
  {
@@ -300,7 +410,23 @@ index eaa93f2..38cdcf2 100644
  	switch (layer_surface->current.keyboard_interactive) {
  	case ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE:
  		wlr_log(WLR_DEBUG, "interactive-exclusive '%p'", layer_surface);
-@@ -660,6 +662,10 @@ static void
+@@ -391,6 +394,7 @@ static void
+ handle_map(struct wl_listener *listener, void *data)
+ {
+ 	struct lab_layer_surface *layer = wl_container_of(listener, layer, map);
++	air_widgets_hide(layer);
+ 	struct wlr_layer_surface_v1 *layer_surface =
+ 		layer->scene_layer_surface->layer_surface;
+ 	struct wlr_output *wlr_output = layer_surface->output;
+@@ -553,6 +557,7 @@ static struct lab_layer_popup *
+ create_popup(struct wlr_xdg_popup *wlr_popup,
+ 		struct wlr_scene_tree *parent)
+ {
++	air_widgets_popup(wlr_popup);
+ 	struct lab_layer_popup *popup = znew(*popup);
+ 	popup->wlr_popup = wlr_popup;
+ 	popup->scene_tree =
+@@ -660,6 +665,10 @@ static void
  handle_new_layer_surface(struct wl_listener *listener, void *data)
  {
  	struct wlr_layer_surface_v1 *layer_surface = data;
@@ -311,8 +437,16 @@ index eaa93f2..38cdcf2 100644
  
  	if (!layer_surface->output) {
  		struct output *output = output_nearest_to_cursor();
+@@ -701,6 +710,7 @@ handle_new_layer_surface(struct wl_listener *listener, void *data)
+ 		LAB_NODE_LAYER_SURFACE, /*view*/ NULL, surface);
+ 
+ 	surface->scene_layer_surface->layer_surface = layer_surface;
++	air_widgets_layer_created(surface);
+ 
+ 	surface->surface_commit.notify = handle_surface_commit;
+ 	wl_signal_add(&layer_surface->surface->events.commit,
 diff --git a/src/meson.build b/src/meson.build
-index 05163cf..6784c7e 100644
+index 05163cf..626b7e8 100644
 --- a/src/meson.build
 +++ b/src/meson.build
 @@ -35,6 +35,10 @@ labwc_sources = files(
@@ -320,14 +454,14 @@ index 05163cf..6784c7e 100644
  )
  
 +if get_option('air-spatial').enabled()
-+  labwc_sources += files('air-spatial.c')
++  labwc_sources += files('air-spatial.c', 'air-widgets.c')
 +endif
 +
  if have_xwayland
    labwc_sources += files(
      'xwayland.c',
 diff --git a/src/output.c b/src/output.c
-index 1308f56..e09f0f5 100644
+index 1308f56..a74bf24 100644
 --- a/src/output.c
 +++ b/src/output.c
 @@ -7,6 +7,7 @@
@@ -338,7 +472,16 @@ index 1308f56..e09f0f5 100644
  #include "output.h"
  #include <assert.h>
  #include <drm_fourcc.h>
-@@ -305,6 +306,7 @@ handle_output_destroy(struct wl_listener *listener, void *data)
+@@ -260,6 +261,8 @@ handle_output_frame(struct wl_listener *listener, void *data)
+ 		return;
+ 	}
+ 
++	air_spatial_output_frame(output);
++
+ #if WLR_HAS_SESSION
+ 	/*
+ 	 * skip painting the session when it exists but is not active.
+@@ -305,6 +308,7 @@ handle_output_destroy(struct wl_listener *listener, void *data)
  		wlr_scene_output_destroy(output->scene_output);
  		output->scene_output = NULL;
  	}
@@ -346,7 +489,51 @@ index 1308f56..e09f0f5 100644
  
  	wl_list_remove(&output->link);
  	wl_list_remove(&output->frame.link);
-@@ -1006,6 +1008,11 @@ static void
+@@ -823,6 +827,32 @@ output_update_for_layout_change(void)
+ 	cursor_update_image(&server.seat);
+ }
+ 
++/* A complete output-management request includes unchanged heads too. Avoid
++ * modesetting those heads when only the Air was reconnected/reconfigured. */
++static bool
++output_config_unchanged(struct wlr_output_configuration_head_v1 *head)
++{
++	struct wlr_output *o = head->state.output;
++	struct output *output = output_from_wlr_output(o);
++	if (output->pending.committed || head->state.enabled != o->enabled) {
++		return false;
++	}
++	struct wlr_output_layout_output *layout =
++		wlr_output_layout_get(server.output_layout, o);
++	if (!o->enabled) {
++		return !layout;
++	}
++	bool same_mode = head->state.mode ? o->current_mode == head->state.mode :
++		(!o->current_mode && o->width == head->state.custom_mode.width &&
++		 o->height == head->state.custom_mode.height &&
++		 o->refresh == head->state.custom_mode.refresh);
++	return same_mode && layout && layout->x == head->state.x &&
++		layout->y == head->state.y && o->scale == head->state.scale &&
++		o->transform == head->state.transform &&
++		(o->adaptive_sync_status == WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED) ==
++		head->state.adaptive_sync_enabled;
++}
++
+ static bool
+ output_config_apply(struct wlr_output_configuration_v1 *config)
+ {
+@@ -836,6 +866,10 @@ output_config_apply(struct wlr_output_configuration_v1 *config)
+ 		struct wlr_output_state *os = &output->pending;
+ 		bool output_enabled = head->state.enabled;
+ 
++		if (output_config_unchanged(head)) {
++			continue;
++		}
++
+ 		wlr_output_state_set_enabled(os, output_enabled);
+ 		if (output_enabled) {
+ 			/* Output specific actions only */
+@@ -1006,6 +1040,11 @@ static void
  handle_output_manager_apply(struct wl_listener *listener, void *data)
  {
  	struct wlr_output_configuration_v1 *config = data;
@@ -358,7 +545,18 @@ index 1308f56..e09f0f5 100644
  
  	bool config_is_good = verify_output_config_v1(config);
  
-@@ -1299,6 +1306,7 @@ void
+@@ -1149,8 +1188,8 @@ output_nearest_to(int lx, int ly)
+ 	wlr_output_layout_closest_point(server.output_layout, NULL, lx, ly,
+ 		&closest_x, &closest_y);
+ 
+-	return output_from_wlr_output(wlr_output_layout_output_at(server.output_layout,
+-			closest_x, closest_y));
++	return air_spatial_desktop_output(output_from_wlr_output(wlr_output_layout_output_at(server.output_layout,
++			closest_x, closest_y)));
+ }
+ 
+ struct output *
+@@ -1299,6 +1338,7 @@ void
  handle_output_power_manager_set_mode(struct wl_listener *listener, void *data)
  {
  	struct wlr_output_power_v1_set_mode_event *event = data;
@@ -367,7 +565,7 @@ index 1308f56..e09f0f5 100644
  	assert(output);
  
 diff --git a/src/server.c b/src/server.c
-index e1a91ec..9f25c4b 100644
+index e1a91ec..bd4d08b 100644
 --- a/src/server.c
 +++ b/src/server.c
 @@ -1,5 +1,6 @@
@@ -381,7 +579,7 @@ index e1a91ec..9f25c4b 100644
  				" please report", (long)info.si_pid, info.si_code);
  		}
  
-+		air_spatial_helper_exited(info.si_pid);
++		air_spatial_helper_exited(info.si_pid, info.si_code, info.si_status);
  		if (info.si_pid == server.primary_client_pid) {
  			wlr_log(WLR_INFO, "primary client %ld exited", (long)info.si_pid);
  			wl_display_terminate(server.wl_display);
@@ -492,10 +690,19 @@ index 7ca9ab0..6adb71b 100644
  	/* Get position of parent toplevel/popup */
  	int parent_lx, parent_ly;
 diff --git a/src/xdg.c b/src/xdg.c
-index 3c62b52..6a7140f 100644
+index 3c62b52..0a4dbe9 100644
 --- a/src/xdg.c
 +++ b/src/xdg.c
-@@ -571,6 +571,11 @@ handle_request_show_window_menu(struct wl_listener *listener, void *data)
+@@ -76,6 +76,8 @@ xdg_toplevel_view_get_size_hints(struct view *view)
+ 	return (struct view_size_hints){
+ 		.min_width = state->min_width,
+ 		.min_height = state->min_height,
++		.max_width = state->max_width,
++		.max_height = state->max_height,
+ 	};
+ }
+ 
+@@ -571,6 +573,11 @@ handle_request_show_window_menu(struct wl_listener *listener, void *data)
  static void
  handle_set_parent(struct wl_listener *listener, void *data)
  {
@@ -507,7 +714,7 @@ index 3c62b52..6a7140f 100644
  	struct xdg_toplevel_view *xdg_toplevel_view = wl_container_of(
  		listener, xdg_toplevel_view, set_parent);
  	struct view *view = &xdg_toplevel_view->base;
-@@ -1086,7 +1091,11 @@ handle_new_xdg_toplevel(struct wl_listener *listener, void *data)
+@@ -1086,7 +1093,11 @@ handle_new_xdg_toplevel(struct wl_listener *listener, void *data)
  	mappable_connect(&view->mappable, xdg_surface->surface,
  		handle_map, handle_unmap);
  
@@ -519,3 +726,16 @@ index 3c62b52..6a7140f 100644
  	wlr_scene_xdg_surface_create(&root_view->capture.scene->tree, xdg_surface);
  
  	struct wlr_xdg_toplevel *toplevel = xdg_surface->toplevel;
+diff --git a/src/xwayland.c b/src/xwayland.c
+index 5dd1a47..0ac17be 100644
+--- a/src/xwayland.c
++++ b/src/xwayland.c
+@@ -97,6 +97,8 @@ xwayland_view_get_size_hints(struct view *view)
+ 	return (struct view_size_hints){
+ 		.min_width = hints->min_width,
+ 		.min_height = hints->min_height,
++		.max_width = (hints->flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) ? hints->max_width : 0,
++		.max_height = (hints->flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) ? hints->max_height : 0,
+ 		.width_inc = hints->width_inc,
+ 		.height_inc = hints->height_inc,
+ 		.base_width = hints->base_width,

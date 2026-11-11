@@ -6,6 +6,14 @@ log=Path(os.environ['AIR_TEST_EVENTS'])
 def emit(kind,**kw):
  with log.open('a') as f:f.write(json.dumps({'time':time.monotonic(),'kind':kind,**kw})+'\n')
 w=Gtk.Window(title='Native Spatial Editor Test');w.set_wmclass('air-native-editor','air-native-editor');w.set_default_size(900,600)
+last_size = None
+def size_allocated(widget, allocation):
+ global last_size
+ size = (allocation.width, allocation.height)
+ if size != last_size:
+  last_size = size
+  emit('window-size', width=size[0], height=size[1])
+w.connect('size-allocate', size_allocated)
 t=Gtk.TextView();t.set_monospace(True);t.get_buffer().set_text('Original labwc client — native spatial integration\n\nClick here, type, and drag to select text across the panel edge.\nHead turns must never move this editor pointer or steal keyboard focus.\n');box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL);label=Gtk.Label(label="Frame callback check 0");box.pack_start(label,False,False,0);box.pack_start(t,True,True,0);w.add(box)
 counter=[0]
 def animate():

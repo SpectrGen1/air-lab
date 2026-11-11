@@ -12,11 +12,16 @@ struct wlr_layer_surface_v1;
 struct wl_client;
 struct wlr_surface;
 struct wlr_input_device;
+struct wlr_pointer_constraint_v1;
 struct wlr_keyboard;
 struct wlr_keyboard_key_event;
 #if HAVE_AIR_SPATIAL
+void air_spatial_output_frame(struct output *output);
+struct output *air_spatial_desktop_output(struct output *output);
+void air_spatial_widget_removed(uint64_t id);
+bool air_spatial_private_client(struct wl_client *client);
 void air_spatial_forget_view(struct view *view);
-void air_spatial_helper_exited(pid_t pid);
+void air_spatial_helper_exited(pid_t pid, int code, int status);
 void air_spatial_output_lost(struct output *output);
 bool air_spatial_presenter(struct wlr_surface *surface);
 bool air_spatial_ignore_host_test_input(struct wlr_input_device *device);
@@ -24,9 +29,14 @@ void air_spatial_init(void);
 void air_spatial_finish(void);
 void air_spatial_stop(const char *reason);
 bool air_spatial_active(void);
+bool air_spatial_can_constrain(struct wlr_pointer_constraint_v1 *constraint);
+bool air_spatial_relative_allowed(void);
+void air_spatial_constraint_hint(struct wlr_pointer_constraint_v1 *constraint,
+                                 double sx, double sy);
 bool air_spatial_in_use(void);
 bool air_spatial_context(struct cursor_context *ctx);
 bool air_spatial_motion(double dx, double dy);
+void air_spatial_modifiers(uint32_t modifiers);
 bool air_spatial_key(struct wlr_keyboard *kb, struct wlr_keyboard_key_event *ev);
 bool air_spatial_press_allowed(void);
 bool air_spatial_button(uint32_t button, bool pressed);
@@ -37,7 +47,11 @@ bool air_spatial_cursor(struct wlr_surface *surface, int hx, int hy);
 bool air_spatial_cursor_name(const char *name);
 bool air_spatial_capture_allowed(struct wl_client *client);
 #else
-static inline void air_spatial_helper_exited(pid_t pid) { (void)pid; }
+static inline void air_spatial_output_frame(struct output *o) { (void)o; }
+static inline struct output *air_spatial_desktop_output(struct output *o) { return o; }
+static inline void air_spatial_helper_exited(pid_t pid, int code, int status) {
+    (void)pid; (void)code; (void)status;
+}
 static inline void air_spatial_output_lost(struct output *o) { (void)o; }
 static inline bool air_spatial_presenter(struct wlr_surface *s) {
     (void)s;
@@ -53,6 +67,17 @@ static inline void air_spatial_finish(void) {}
 static inline void air_spatial_stop(const char *s) { (void)s; }
 static inline bool air_spatial_in_use(void) { return false; }
 static inline bool air_spatial_active(void) { return false; }
+static inline bool air_spatial_can_constrain(struct wlr_pointer_constraint_v1 *constraint) {
+    (void)constraint;
+    return false;
+}
+static inline bool air_spatial_relative_allowed(void) { return true; }
+static inline void air_spatial_constraint_hint(struct wlr_pointer_constraint_v1 *constraint,
+                                               double sx, double sy) {
+    (void)constraint;
+    (void)sx;
+    (void)sy;
+}
 static inline bool air_spatial_context(struct cursor_context *p) {
     (void)p;
     return false;
@@ -62,6 +87,7 @@ static inline bool air_spatial_motion(double x, double y) {
     (void)y;
     return false;
 }
+static inline void air_spatial_modifiers(uint32_t modifiers) { (void)modifiers; }
 static inline bool air_spatial_key(struct wlr_keyboard *k, struct wlr_keyboard_key_event *e) {
     (void)k;
     (void)e;

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="air_widget_v1">
+  <interface name="air_widget_manager_v1" version="1">
+    <description summary="private layer capture for the compositor-owned presenter">
+      Binding and requests are accepted only from the private presenter client.
+      IDs are supplied on that client's inherited scene socket, never enumerated.
+    </description>
+    <request name="destroy" type="destructor"/>
+    <request name="get_source">
+      <arg name="source" type="new_id" interface="ext_image_capture_source_v1"/>
+      <arg name="id_hi" type="uint"/>
+      <arg name="id_lo" type="uint"/>
+    </request>
+  </interface>
+</protocol>

@@ -21,6 +21,11 @@ else
     git -C "$tracker_src" apply --check "$startup_patch"
     git -C "$tracker_src" apply "$startup_patch"
 fi
+poll_patch="$lab_root/patches/xreal-controller-poll.patch"
+if ! git -C "$tracker_src" apply --reverse --check "$poll_patch" 2>/dev/null; then
+    git -C "$tracker_src" apply --check "$poll_patch"
+    git -C "$tracker_src" apply "$poll_patch"
+fi
 git -C "$tracker_src" submodule update --init --recursive
 fusion_src="$tracker_src/modules/xrDeviceKit"
 fusion_patch="$lab_root/patches/xrdevicekit-timestamp-rebase.patch"
@@ -30,6 +35,13 @@ else
     git -C "$fusion_src" apply --check "$fusion_patch"
     git -C "$fusion_src" apply "$fusion_patch"
 fi
+screen_src="$tracker_src/modules/xrealInterfaceLibrary"
+screen_patch="$lab_root/patches/xreal-screen-events.patch"
+if ! git -C "$screen_src" apply --reverse --check "$screen_patch" 2>/dev/null; then
+    git -C "$screen_src" apply --check "$screen_patch"
+    git -C "$screen_src" apply "$screen_patch"
+fi
+cp "$lab_root/native/common/air-screen.h" "$lab_root/native/tracker/air-screen-publish.h" "$screen_src/interface_lib/include/"
 # Upstream CMake references this static library but does not build it for Ninja.
 cargo build --locked --release --manifest-path "$tracker_src/modules/xrealOneDeviceKit/modules/xreal_one_driver/Cargo.toml"
 cmake -S "$tracker_src" -B "$lab_root/.local/build/xr-driver" -G Ninja -DCMAKE_BUILD_TYPE=Release

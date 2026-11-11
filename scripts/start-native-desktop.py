@@ -4,11 +4,15 @@ import ctypes
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from native_stereo import StereoMode
+from native_events import child_exit, open_session, record
 
 ROOT = Path(os.environ.get('AIR_LAB_ROOT', Path(__file__).resolve().parent.parent)).resolve()
 INSTALL = ROOT / '.local/native-install.json'
@@ -49,16 +53,42 @@ def main():
         os.execv('/usr/bin/labwc', ['/usr/bin/labwc', *sys.argv[1:]])
     runtime = Path(tempfile.mkdtemp(prefix='air-spatial-', dir=os.environ['XDG_RUNTIME_DIR']))
     ready_file = runtime / 'tracker.json'
+    state_home = Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state')
+    workspace_dir = state_home / 'air-lab'
+    try:
+        workspace_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        workspace_state = str(workspace_dir / 'workspace-v1')
+    except OSError as error:
+        workspace_state = ''
+        print(f'Air spatial layout persistence unavailable: {error}', file=sys.stderr)
     log_path = ROOT / '.local/tracker/state/xr_driver/driver.log'
+    try:
+        events = open_session(workspace_dir)
+    except OSError as error:
+        events = None
+        print(f'Air diagnostics unavailable: {error}', file=sys.stderr, flush=True)
+    record(events, 'supervisor', 'session_start', release=Path(config['labwc']).parent.name,
+           session_log=os.environ.get('AIR_SESSION_LOG'), tracker_log=str(log_path))
+    if events:
+        print(f'Air diagnostics: {events}', file=sys.stderr, flush=True)
     offset = log_path.stat().st_size if log_path.exists() else 0
     env = os.environ | {
+        'AIR_SPATIAL_EVENT_LOG': str(events) if events else '',
+        'AIR_SPATIAL_WORKSPACE_STATE': workspace_state,
         'AIR_SPATIAL_HELPER': config.get('presenter_launcher', str(ROOT / 'scripts/start-native-presenter.py')),
         'AIR_NATIVE_RENDERER': config['presenter'],
+        'AIR_SPATIAL_WIDGET_HELPER': config.get('widget_launcher', str(ROOT / 'scripts/start-native-widgets.py')) if config.get('widgets', True) else '',
         'AIR_LAB_ROOT': str(ROOT),
         'AIR_LAB_TRACKER_BINARY': config.get('tracker', str(ROOT / '.local/build/xr-driver/xrDriver')),
         'AIR_TRACKER_READY_FILE': str(ready_file),
         'AIR_SPATIAL_OUTPUT': config['output'],
         'AIR_SPATIAL_UDP_PORT': str(config.get('udp_port', 4243)),
+        'AIR_SPATIAL_RESERVED_DISPLAY': '1' if config.get('reserved_display', False) else '0',
+        'AIR_SPATIAL_STEREO': '1' if config.get('stereo', True) else '0',
+        'AIR_SPATIAL_IPD_MM': str(config.get('ipd_mm', 64)),
+        'AIR_SPATIAL_IPD_CENTER_MM': str(config.get('ipd_center_mm', 0)),
+        'AIR_SPATIAL_IPD_BASELINE_MM': str(config.get('ipd_baseline_mm', config.get('ipd_mm',64))),
+        'AIR_SPATIAL_AUTO_START': '1' if config.get('auto_start', True) else '0',
         'AIR_SPATIAL_POWER': '1' if config.get('power', False) else '0',
         'AIR_SPATIAL_PANEL_SCALE': str(config.get('panel_scale', 2 / 3)),
         'AIR_SPATIAL_HEAD_ROLL': '1' if config.get('head_roll', False) else '0',
@@ -72,19 +102,27 @@ def main():
         if os.getppid() != parent_pid:
             os._exit(1)
 
+    children = []
+    reported = set()
+    shutdown_signal = None
+
     def interrupted(signum, frame):
+        nonlocal shutdown_signal
+        shutdown_signal = signum
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
-    children = []
+    stereo = StereoMode(ready_file, config, INSTALL)
     try:
         tracker = subprocess.Popen([sys.executable, config.get('tracker_launcher', str(ROOT / 'scripts/run-tracker.py')),
                                     '--udp-port', env['AIR_SPATIAL_UDP_PORT']], env=env, preexec_fn=child_lifetime)
-        children.append(tracker)
+        children.append(('tracker', tracker))
+        record(events, 'tracker', 'process_start', child_pid=tracker.pid)
         compositor = subprocess.Popen([config['labwc'], *sys.argv[1:]], env=env,
                                        preexec_fn=child_lifetime)
-        children.append(compositor)
+        children.append(('compositor', compositor))
+        record(events, 'compositor', 'process_start', child_pid=compositor.pid)
         connected = calibrated = False
         ready_at = 0
         last_state = None
@@ -111,30 +149,61 @@ def main():
                         connected = calibrated = False
             except FileNotFoundError:
                 pass
+            try:
+                stereo.update(compositor.pid, tracker.pid, connected and tracker.poll() is None)
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                print('Air stereo: mode transition is waiting: ' + str(error), file=sys.stderr)
             state = {'connected': connected and tracker.poll() is None,
                      'calibrated': calibrated, 'ready_at': ready_at, 'pid': tracker.pid,
                      'source_port': tracker_source_port(tracker.pid) if tracker.poll() is None else None}
+            if tracker.returncode is not None and tracker.pid not in reported:
+                child_exit(events, 'tracker', tracker, termination_requested=False)
+                reported.add(tracker.pid)
             if state != last_state:
+                record(events, 'tracker', 'readiness', child_pid=tracker.pid,
+                       connected=state['connected'], calibrated=state['calibrated'],
+                       source_ready=state['source_port'] is not None)
                 tmp = ready_file.with_suffix('.tmp')
                 tmp.write_text(json.dumps(state))
                 tmp.replace(ready_file)
                 last_state = state
             time.sleep(.2)
+        child_exit(events, 'compositor', compositor, termination_requested=False)
+        reported.add(compositor.pid)
         return compositor.returncode
     except KeyboardInterrupt:
+        record(events, 'supervisor', 'shutdown_requested', signal=shutdown_signal)
         return 0
+    except Exception as error:
+        record(events, 'supervisor', 'failure', error=type(error).__name__,
+               errno=getattr(error, 'errno', None))
+        raise
     finally:
-        for child in reversed(children):
+        try:
+            stereo.restore()
+        except OSError as error:
+            print('Air stereo: could not request hardware restoration: ' + str(error), file=sys.stderr)
+        if stereo.changed:
+            time.sleep(1.2)  # Give the existing reader time to restore the hardware before termination.
+        terminating = set()
+        for _, child in reversed(children):
             if child.poll() is None:
+                terminating.add(child.pid)
                 child.terminate()
-        for child in reversed(children):
+        for component, child in reversed(children):
             try:
                 child.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 child.kill()
                 child.wait()
-        ready_file.unlink(missing_ok=True)
-        runtime.rmdir()
+            if child.pid not in reported:
+                child_exit(events, component, child, termination_requested=child.pid in terminating)
+        try:
+            shutil.rmtree(runtime)
+        except OSError as error:
+            record(events, 'supervisor', 'runtime_cleanup_failed', errno=error.errno)
+            print(f'Air runtime cleanup: {error}', file=sys.stderr, flush=True)
+        record(events, 'supervisor', 'session_end', shutdown_signal=shutdown_signal)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,246 @@
+diff --git a/interface_lib/src/mcu_hid.c b/interface_lib/src/mcu_hid.c
+index 4ed9488..467c767 100644
+--- a/interface_lib/src/mcu_hid.c
++++ b/interface_lib/src/mcu_hid.c
+@@ -35,6 +35,7 @@
+ #include <hidapi/hidapi.h>
+ 
+ #include "crc32.h"
++#include "air-screen-publish.h"
+ #include "hid_ids.h"
+ #include "endian_compat.h"
+ #include "device.h"
+@@ -98,22 +99,17 @@ static bool recv_payload(mcu_hid_device* device, uint8_t size, uint8_t* payload)
+ 		payload_size = MAX_PACKET_SIZE;
+ 	}
+ 
+-	int transferred = hid_read(device->handle, payload, payload_size);
++	/* Read the whole report even when this command expects a small reply.
++     * An asynchronous OLED event may arrive first and must not be truncated. */
++    uint8_t report[MAX_PACKET_SIZE];
++    int transferred = hid_read_timeout(device->handle, report, sizeof(report), 25);
++    if (transferred > 0) air_screen_observe(report, transferred);
+ 
+-	if (transferred >= payload_size) {
+-		transferred = payload_size;
+-	}
+-
+-	if (transferred == 0) {
+-		return false;
+-	}
+-
+-	if (transferred != payload_size) {
+-		device_mcu_error("Receiving payload failed");
+-		return false;
+-	}
+-
+-	return (transferred == size);
++    if (transferred <= 0 || !ascreen_valid_packet(report, (size_t)transferred))
++        return false;
++    memset(payload, 0, payload_size);
++    memcpy(payload, report, transferred < payload_size ? transferred : payload_size);
++    return true;
+ }
+ 
+ static bool send_payload_action(mcu_hid_device* device, uint16_t msgid, uint8_t len, const uint8_t* data) {
+@@ -146,46 +142,25 @@ static bool send_payload_action(mcu_hid_device* device, uint16_t msgid, uint8_t
+ }
+ 
+ static bool recv_payload_msg(mcu_hid_device* device, uint16_t msgid, uint8_t len, uint8_t* data) {
+-	static mcu_hid_packet_type packet;
+-
+-	packet.head = 0;
+-	packet.length = 0;
+-	packet.msgid = 0;
+-
+-	const uint16_t packet_len = 18 + len;
+-	const uint16_t payload_len = 5 + packet_len;
+-
+-	if (!recv_payload(device, payload_len, (uint8_t*) (&packet))) {
+-		return false;
+-	}
+-
+-	if (packet.head != PACKET_HEAD) {
+-		device_mcu_error("Invalid payload received");
+-		return false;
+-	}
+-
+-	if (le16toh(packet.msgid) != msgid) {
+-		device_mcu_error("Unexpected payload received");
+-		return false;
+-	}
+-
+-	const uint8_t status = packet.data[0];
+-
+-	if (status != 0) {
+-		device_mcu_error("Payload status failed");
+-		return false;
+-	}
+-
+-	const uint16_t data_len = le16toh(packet.length) - 18;
+-
+-	if (len <= data_len) {
+-		memcpy(data, packet.data + 1, len);
+-	} else {
+-		memcpy(data, packet.data + 1, data_len);
+-		memset(data + data_len, 0, len - data_len);
+-	}
+-
+-	return true;
++    /* A command reply shares the same sole-reader stream with OLED events.
++     * Bound both idle time (64 * 25ms) and a flood of unrelated reports. */
++    for (unsigned attempt = 0; attempt < 64; attempt++) {
++        mcu_hid_packet_type packet = {0};
++        if (!recv_payload(device, sizeof(packet), (uint8_t*)&packet)) continue;
++        if (le16toh(packet.msgid) != msgid) continue;
++        if (packet.data[0] != 0) return false;
++        uint16_t length = le16toh(packet.length);
++        size_t available = length - 18;
++        /* Firmware-version replies are variable strings, not fixed-size
++         * buffers. Preserve zero padding; scalar replies still need a value. */
++        if (len == 1 && available < 1) return false;
++        if (len) {
++            memset(data, 0, len);
++            memcpy(data, packet.data + 1, available < len ? available : len);
++        }
++        return true;
++    }
++    return false;
+ }
+ 
+ static bool do_payload_action(mcu_hid_device* device, uint16_t msgid, uint8_t len, const uint8_t* data) {
+@@ -193,31 +168,21 @@ static bool do_payload_action(mcu_hid_device* device, uint16_t msgid, uint8_t le
+ 		return false;
+ 	}
+ 
+-	const uint16_t attempts_per_second = (device->active? 60 : 1);
++    return recv_payload_msg(device, msgid, 0, NULL);
+ 
+-	uint16_t attempts = attempts_per_second * 5;
+-
+-	while (attempts > 0) {
+-		if (recv_payload_msg(device, msgid, 0, NULL)) {
+-			return true;
+-		}
+-
+-		attempts--;
+-	}
+-
+-	return false;
+ }
+ 
+ static void mcu_hid_drain(mcu_hid_device* device) {
+ 	mcu_hid_packet_type packet;
+ 	memset(&packet, 0, sizeof(mcu_hid_packet_type));
+ 
+-	hid_read_timeout(
++	int n = hid_read_timeout(
+ 			device->handle,
+ 			(uint8_t*) &packet,
+ 			MAX_PACKET_SIZE,
+ 			10
+ 	);
++	if (n > 0) air_screen_observe(&packet, n);
+ }
+ 
+ typedef struct mcu_hid_heartbeat_t {
+@@ -258,7 +223,9 @@ static bool mcu_hid_heartbeat_command(mcu_hid_device* device, uint16_t msgid, ui
+ 				DEVICE_MCU_HEARTBEAT_RESPONSE_TIMEOUT_MS
+ 		);
+ 
+-		if (transferred == -1) {
++		air_screen_observe(transferred > 0 ? &packet : NULL, transferred > 0 ? (size_t)transferred : 0);
++
++	if (transferred == -1) {
+ 			device_mcu_error("Device may be unplugged");
+ 			return false;
+ 		}
+@@ -495,6 +462,8 @@ int mcu_hid_read_next(mcu_hid_device* device, mcu_hid_event* out, int timeout) {
+ 			timeout
+ 	);
+ 
++	air_screen_observe(transferred > 0 ? &packet : NULL, transferred > 0 ? (size_t)transferred : 0);
++
+ 	if (transferred == -1) {
+ 		device_mcu_error("Device may be unplugged");
+ 		return -1;
+@@ -504,10 +473,11 @@ int mcu_hid_read_next(mcu_hid_device* device, mcu_hid_event* out, int timeout) {
+ 		return 0;
+ 	}
+ 
+-	if (MAX_PACKET_SIZE != transferred) {
+-		device_mcu_error("Unexpected packet size");
+-		return -1;
+-	}
++	if (!ascreen_valid_packet((const uint8_t*)&packet, (size_t)transferred)) {
++        /* Short reports are valid on original Air; malformed traffic is not a
++         * device disconnect and must not tear down the MCU reader. */
++        return 0;
++    }
+ 
+ 	if (packet.head != PACKET_HEAD) {
+ 		device_mcu_error("Wrong packet head");
+@@ -601,22 +571,18 @@ int mcu_hid_read_next(mcu_hid_device* device, mcu_hid_event* out, int timeout) {
+ 
+ 			break;
+ 		}
+-		case DEVICE_MCU_MSG_P_ASYNC_TEXT_LOG: {
+-			const char* text = packet.text;
+-			const size_t text_len = strlen(text);
+-
+-			device->active = true;
+-
+-			if (data_len + text_len != length) {
+-				device_mcu_error("Not matching length");
+-				return -1;
+-			}
+-
+-			out->event = MCU_HID_EVENT_MESSAGE;
+-			strncpy(out->msg, text, sizeof(out->msg) - 1);
+-			out->msg[sizeof(out->msg) - 1] = '\0';
+-			return 1;
+-		}
++        case DEVICE_MCU_MSG_P_ASYNC_TEXT_LOG: {
++            /* Firmware can fill all 42 bytes without a terminator (notably
++             * DP-vsync logs during SBS). strlen here read beyond the packet,
++             * then treated valid logs as MCU disconnects. CRC/length already
++             * validated the report; copy only its declared text span. */
++            size_t text_len = length - data_len;
++            if (text_len >= sizeof(out->msg)) text_len = sizeof(out->msg) - 1;
++            out->event = MCU_HID_EVENT_MESSAGE;
++            memcpy(out->msg, packet.text, text_len);
++            out->msg[text_len] = '\0';
++            return 1;
++        }
+ 		case DEVICE_MCU_MSG_P_END_HEARTBEAT: {
+ 			break;
+ 		}
+@@ -684,10 +650,24 @@ bool mcu_hid_update_display_mode(mcu_hid_device* device) {
+ 		return false;
+ 	}
+ 
+-	if (!do_payload_action(device, DEVICE_MCU_MSG_W_DISP_MODE, 1, &device->disp_mode)) {
+-		device_mcu_error("Sending display mode failed");
+-		return false;
+-	}
++    /* Air's display-mode command takes a little-endian u32, carried in a
++     * full report-id-0 HID report. A one-byte short write can update the EDID
++     * while leaving the optical path dark, despite a successful ACK/readback. */
++    mcu_hid_packet_type packet = {0};
++    packet.head = PACKET_HEAD;
++    packet.length = htole16(21); /* 17-byte header + four-byte mode */
++    packet.timestamp = htole64(0x9100);
++    packet.msgid = htole16(DEVICE_MCU_MSG_W_DISP_MODE);
++    uint32_t mode = htole32(device->disp_mode);
++    memcpy(packet.data, &mode, sizeof(mode));
++    packet.checksum = htole32(crc32_checksum((const uint8_t*)&packet.length, 21));
++    uint8_t report[1 + MAX_PACKET_SIZE] = {0};
++    memcpy(report + 1, &packet, sizeof(packet));
++    if (hid_write(device->handle, report, sizeof(report)) != (int)sizeof(report) ||
++        !recv_payload_msg(device, DEVICE_MCU_MSG_W_DISP_MODE, 0, NULL)) {
++        device_mcu_error("Sending display mode failed");
++        return false;
++    }
+ 
+ 	return true;
+ }

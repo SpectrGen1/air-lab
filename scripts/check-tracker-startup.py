@@ -12,15 +12,20 @@ connection = source[start:end]
 prefix = r'''
 #include <assert.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include "device_imu.h"
 #include "device_mcu.h"
 static bool use_hid_transport = false, mcu_enabled = true;
 static bool connected, mcu_heartbeat_required;
 static device_imu_type *glasses_imu;
 static device_mcu_type *glasses_controller;
-struct properties {bool sbs_mode_supported;};
+static atomic_int requested_display_mode=-1,confirmed_display_mode=-1;
+#define XREAL_ID_PRODUCT_COUNT 1
+static const int xreal_supported_id_product[]={0x0424};
+static const bool xreal_sbs_mode_supported[]={true};
+struct properties {bool sbs_mode_supported;int hid_product_id;};
 typedef struct properties device_properties_type;
-static device_properties_type properties;
+static device_properties_type properties={.hid_product_id=0x0424};
 static device_properties_type *device_checkout(void){return &properties;}
 static void device_checkin(device_properties_type *p){(void)p;}
 #define handle_xreal_event NULL
@@ -44,7 +49,8 @@ suffix = r'''
 int main(void){
  assert(xreal_device_connect()); free(glasses_imu);
  use_hid_transport = true;
- assert(xreal_device_connect()); free(glasses_imu);free(glasses_controller);
+ properties.sbs_mode_supported=false;
+ assert(xreal_device_connect()); assert(properties.sbs_mode_supported); free(glasses_imu);free(glasses_controller);
 }
 '''
 with tempfile.TemporaryDirectory(prefix='air-tracker-startup-') as directory:

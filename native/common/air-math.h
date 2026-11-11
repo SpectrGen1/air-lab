@@ -26,6 +26,22 @@ static inline struct air_vec aray(double theta, double h) {
     struct air_vec d = acylinder_point(theta, h);
     return ascale(d, 1 / sqrt(adot(d, d)));
 }
+/* Parallel eye cameras. Eye offsets follow head-right; picking stays cyclopean.
+ * Positive eye is right. No toe-in (which would create vertical disparity). */
+static inline double aeye_offset(int eye, double ipd_mm) {
+    return (eye ? 1 : -1) * aclamp(ipd_mm, 45, 80) / 2000.;
+}
+/* center_mm is relative to the configured head centre: (right PD-left PD)/2. */
+static inline double aeye_offset_center(int eye, double ipd_mm, double center_mm) {
+    return aeye_offset(eye,ipd_mm) + center_mm / 1000.;
+}
+static inline struct air_vec aeye_origin_center(const double basis[9], int eye, double ipd_mm,
+                                                double center_mm) {
+    return ascale(av(basis[0],basis[1],basis[2]),aeye_offset_center(eye,ipd_mm,center_mm));
+}
+static inline struct air_vec aeye_origin(const double basis[9], int eye, double ipd_mm) {
+    return ascale(av(basis[0], basis[1], basis[2]), aeye_offset(eye, ipd_mm));
+}
 static inline double amouse_gain(double width) {
     return 2 * tan(40 * AIR_PI / 360) / fmax(1, width);
 }
@@ -66,6 +82,15 @@ static inline struct air_vec aup(const struct air_panel *p) {
     struct air_vec n = anormal(p), r = aright(p);
     return av(n.y * r.z, n.z * r.x - n.x * r.z, -n.y * r.x);
 }
+/* Yaw-following OS dock: pitch/roll never change its physical height/depth. */
+static inline void awidget_pose(struct air_panel *p, int role, double yaw) {
+    p->azimuth = yaw;
+    p->distance = .6096;
+    p->elevation = -.3048 + (role < 3 ? (1 - role) * .045 : 0);
+    if (role == 3) p->distance = .58;
+    p->metres_per_pixel = fmin(.0006, .42 / fmax(1, p->width));
+    p->metres_per_pixel_y = p->metres_per_pixel;
+}
 static inline double apixel_y(const struct air_panel *p) {
     return p->metres_per_pixel_y > 0 ? p->metres_per_pixel_y : p->metres_per_pixel;
 }
@@ -86,6 +111,19 @@ static inline bool aplane(const struct air_panel *p, struct air_vec d, double *x
 static inline struct air_vec apoint(const struct air_panel *p, double x, double y) {
     return aadd(acentre(p), aadd(ascale(aright(p), (x - p->width * .5) * p->metres_per_pixel),
                                  ascale(aup(p), (p->height * .5 - y) * apixel_y(p))));
+}
+/* Resolve a dialog's desktop-relative anchor on its parent's current
+ * spatial plane. Move it slightly toward the viewer along that plane's normal. */
+static inline void atransient_anchor(struct air_panel *dialog, const struct air_panel *parent,
+                                     double offset_x, double offset_y) {
+    struct air_vec anchor = apoint(parent, parent->width * .5 + offset_x,
+                                   parent->height * .5 + offset_y);
+    anchor = aadd(anchor, ascale(anormal(parent), -.015));
+    dialog->azimuth = atan2(anchor.x, anchor.z);
+    dialog->distance = fmax(.05, hypot(anchor.x, anchor.z));
+    dialog->elevation = anchor.y;
+    dialog->metres_per_pixel = parent->metres_per_pixel;
+    dialog->metres_per_pixel_y = apixel_y(parent);
 }
 /* Keep spatial chrome outside the complete capture group, including CSD
  * shadows and popup/subsurface extensions, so controls never steal their input. */
@@ -118,10 +156,87 @@ static inline uint32_t aframe_region(const struct air_panel *p, double x, double
         if (x > width - b)
             edges |= AIR_EDGE_RIGHT;
     }
-    return edges ? edges : AIR_TITLE;
+    if (edges)
+        return edges;
+    if ((p->flags & AIR_PANEL_FOCUSED) && y < 0 && y >= -title && width >= AIR_FRAME_ACTION_MIN_WIDTH &&
+        x >= width - AIR_FRAME_ACTION_COUNT * AIR_FRAME_ACTION_WIDTH && x < width) {
+        if (x >= width - AIR_FRAME_ACTION_WIDTH) return AIR_MINIMIZE;
+        if (x >= width - 2 * AIR_FRAME_ACTION_WIDTH) return AIR_PIN;
+        return AIR_CENTER;
+    }
+    return y < 0 && y >= -title && x >= 0 && x < width ? AIR_TITLE : AIR_FRAME;
 }
-static inline double aresize_span(double span, double delta, int direction) {
-    return aclamp(span + 2 * direction * delta, .12, 3.5);
+/* Project corner motion onto the size diagonal. One bounded factor scales both
+ * axes about the centre, preserving aspect even for off-diagonal drags/limits. */
+static inline double aresize_scale(double width, double height, double dx, double dy,
+                                   uint32_t region) {
+    double sx = region & AIR_EDGE_RIGHT ? 1 : -1;
+    double sy = region & AIR_EDGE_BOTTOM ? 1 : -1;
+    double scale = 1 + 2 * (sx * dx * width + sy * dy * height) /
+                            (width * width + height * height);
+    return aclamp(scale, fmax(.12 / width, .12 / height),
+                  fmin(3.5 / width, 3.5 / height));
+}
+struct air_resize_limits {
+    int min_width, min_height, max_width, max_height;
+    int base_width, base_height, width_inc, height_inc;
+};
+
+/* Snap the dragged axis to a size allowed by the app. */
+static inline bool aresize_client_dimension(double desired, double pixel_size, int minimum,
+                                            int maximum, int base, int increment, int *size) {
+    if (!isfinite(desired) || !isfinite(pixel_size) || pixel_size <= 0)
+        return false;
+    double lower = fmax(minimum, ceil(.12 / pixel_size));
+    double upper = fmin(maximum, floor(3.5 / pixel_size));
+    double step = fmax(1, increment);
+    double first = ceil((lower - base) / step);
+    double last = floor((upper - base) / step);
+    if (first > last)
+        return false;
+    double nearest = round((desired - base) / step);
+    *size = (int)(base + step * aclamp(nearest, first, last));
+    return true;
+}
+
+/* Clamp one scale for both axes. If a client uses cell increments, choose
+ * the nearest legal pair that still fits the original ratio to pixel rounding. */
+static inline bool aresize_client_size(int width, int height, double scale,
+                                       struct air_resize_limits limits, int *w, int *h) {
+    if (width <= 0 || height <= 0 || !isfinite(scale))
+        return false;
+    double minimum = fmax((double)limits.min_width / width, (double)limits.min_height / height);
+    double maximum = fmin((double)limits.max_width / width, (double)limits.max_height / height);
+    if (minimum > maximum)
+        return false;
+    scale = aclamp(scale, minimum, maximum);
+    if (limits.width_inc <= 1 && limits.height_inc <= 1) {
+        *w = (int)lround(width * scale);
+        *h = (int)lround(height * scale);
+        return true;
+    }
+
+    double ratio = (double)height / width;
+    double closest = INFINITY;
+    int height_inc = limits.height_inc > 1 ? limits.height_inc : 1;
+    for (int candidate = limits.min_width; candidate <= limits.max_width; candidate++) {
+        if (limits.width_inc > 1 &&
+            ((int64_t)candidate - limits.base_width) % limits.width_inc)
+            continue;
+        double exact_height = candidate * ratio;
+        int64_t rows = llround((exact_height - limits.base_height) / height_inc);
+        int64_t candidate_height = limits.base_height + rows * height_inc;
+        if (candidate_height < limits.min_height || candidate_height > limits.max_height ||
+            fabs(candidate_height - exact_height) > .5 * (1 + ratio))
+            continue;
+        double distance = fabs(candidate - width * scale);
+        if (distance < closest) {
+            closest = distance;
+            *w = candidate;
+            *h = (int)candidate_height;
+        }
+    }
+    return isfinite(closest);
 }
 /* Keep the held point on the mouse ray while a radial panel moves or changes
  * depth. Solve its vertical slope first, then its azimuth; no head pose enters. */
@@ -176,10 +291,37 @@ static inline void arelative_basis(const double raw[9], const double zero[9], bo
         abasis(yaw, pitch, 0, out);
     }
 }
-static inline bool avisible(struct air_vec q, const double basis[9], double aspect) {
+/* Horizontal widget following is sampled once for the entire rendered frame.
+ * Frozen interaction poses remain compositor-owned. */
+static inline double awidget_frame_yaw(const double basis[9], bool follow, double frozen) {
+    return follow ? atan2(basis[6],basis[8]) : frozen;
+}
+/* Temporary magnification narrows the frustum; canonical geometry stays fixed. */
+static inline double azoom_step(double zoom, double delta) {
+    return isfinite(delta) ? aclamp(zoom * exp(-aclamp(delta, -100, 100) * log(1.1) / 15), 1, 3) : zoom;
+}
+static inline bool avisible_zoom(struct air_vec q, const double basis[9], double aspect, double zoom) {
     double z = adot(q, abaxis(basis, 2));
-    double t = tan(40 * AIR_PI / 360);
+    double t = tan(40 * AIR_PI / 360) / zoom;
     return z > 0 && fabs(adot(q, abaxis(basis, 0))) < z * t &&
            fabs(adot(q, abaxis(basis, 1))) < z * t / aspect;
+}
+static inline bool avisible(struct air_vec q, const double basis[9], double aspect) {
+    return avisible_zoom(q,basis,aspect,1);
+}
+static inline bool astereo_visible_center_zoom(struct air_vec point, const double basis[9], double aspect,
+                                    double ipd_mm, double center_mm, double zoom) {
+    for (int eye=0;eye<2;eye++)
+        if (!avisible_zoom(aadd(point, ascale(aeye_origin_center(basis,eye,ipd_mm,center_mm),-1)),basis,aspect,zoom))
+            return false;
+    return true;
+}
+static inline bool astereo_visible_center(struct air_vec point, const double basis[9], double aspect,
+                                    double ipd_mm, double center_mm) {
+    return astereo_visible_center_zoom(point,basis,aspect,ipd_mm,center_mm,1);
+}
+static inline bool astereo_visible(struct air_vec point, const double basis[9], double aspect,
+                                    double ipd_mm) {
+    return astereo_visible_center(point,basis,aspect,ipd_mm,0);
 }
 #endif

@@ -1,0 +1,127 @@
+--- a/src/devices/xreal.c
++++ b/src/devices/xreal.c
+@@ -21,6 +21,8 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <unistd.h>
++#include <time.h>
++#include <stdatomic.h>
+ 
+ #define TS_TO_MS_FACTOR 1000000
+ #define EXPECTED_CYCLES_PER_S 1000
+@@ -233,15 +235,25 @@
+ 
+ device_imu_type* glasses_imu;
+ device_mcu_type* glasses_controller;
++static atomic_int requested_display_mode = -1;
++static atomic_int confirmed_display_mode = -1;
+ bool xreal_device_connect() {
+     sleep(1);
+ 
+     glasses_imu = NULL;
++    atomic_store(&requested_display_mode, -1);
++    atomic_store(&confirmed_display_mode, -1);
+     if (use_hid_transport) {
+         glasses_controller = calloc(1, sizeof(device_mcu_type));
+         mcu_enabled = device_mcu_open_hid(glasses_controller, handle_xreal_controller_event) == DEVICE_MCU_ERROR_NO_ERROR;
+         if (mcu_enabled) {
+             device_mcu_clear(glasses_controller);
++            atomic_store(&confirmed_display_mode, glasses_controller->disp_mode);
++            device_properties_type* device = device_checkout();
++            for (int i=0; i<XREAL_ID_PRODUCT_COUNT; i++)
++                if (device->hid_product_id == xreal_supported_id_product[i])
++                    device->sbs_mode_supported = xreal_sbs_mode_supported[i];
++            device_checkin(device);
+         }
+     }
+ 
+@@ -325,25 +337,32 @@
+     if (config()->debug_threads) log_debug("poll_imu_func, exiting\n");
+ };
+ 
+-bool sbs_mode_change_requested = false;
++
+ void *poll_controller_func(void *arg) {
+     if (config()->debug_threads) log_debug("poll_controller_func, starting\n");
+     device_driver_mcu_exited = false;
++    time_t next_mode_poll = 0;
+ 
+     while (connected && glasses_imu && mcu_enabled &&
+            (mcu_heartbeat_required || device_mcu_read(glasses_controller, 100) == DEVICE_MCU_ERROR_NO_ERROR)) {
+         if (!mcu_heartbeat_required) {
+-            if (sbs_mode_change_requested) {
+-                device_mcu_error_type error = device_mcu_update_display_mode(glasses_controller);
+-                if (error == DEVICE_MCU_ERROR_NO_ERROR) {
+-                    sbs_mode_change_requested = false;
+-                }
+-            } else {
+-                device_mcu_poll_display_mode(glasses_controller);
++            /* Queue requests independently of the cached read_next value. A
++             * screen event between request and write must not overwrite it. */
++            int requested = atomic_exchange(&requested_display_mode, -1);
++            if (requested >= 0) {
++                glasses_controller->disp_mode = requested;
++                if (device_mcu_update_display_mode(glasses_controller) == DEVICE_MCU_ERROR_NO_ERROR &&
++                    device_mcu_poll_display_mode(glasses_controller) == DEVICE_MCU_ERROR_NO_ERROR)
++                    atomic_store(&confirmed_display_mode, glasses_controller->disp_mode);
++                next_mode_poll = time(NULL) + 1;
++            } else if (time(NULL) >= next_mode_poll) {
++                if (device_mcu_poll_display_mode(glasses_controller) == DEVICE_MCU_ERROR_NO_ERROR)
++                    atomic_store(&confirmed_display_mode, glasses_controller->disp_mode);
++                next_mode_poll = time(NULL) + 1;
+             }
+         }
+ 
+-        sleep(1);
++        if (mcu_heartbeat_required) sleep(1);
+     }
+ 
+     if (config()->debug_threads) log_debug("poll_controller_func, disconnect detected %d %d %d\n", connected, mcu_enabled, glasses_controller != NULL);
+@@ -402,7 +421,7 @@
+ 
+ bool xreal_device_is_sbs_mode() {
+     if (connected && mcu_enabled && glasses_controller) {
+-        if (get_display_mode_index(glasses_controller->disp_mode, sbs_display_modes) != -1) {
++        if (get_display_mode_index(atomic_load(&confirmed_display_mode), sbs_display_modes) != -1) {
+             return true;
+         }
+     }
+@@ -414,24 +433,30 @@
+     if (!connected || !mcu_enabled || !glasses_controller) return false;
+ 
+     // check what the current mode is
+-    int sbs_mode_index = get_display_mode_index(glasses_controller->disp_mode, sbs_display_modes);
++    int sbs_mode_index = get_display_mode_index(atomic_load(&confirmed_display_mode), sbs_display_modes);
+     bool is_sbs_mode = sbs_mode_index != -1;
+ 
+     // if the current mode matches the requested mode, do nothing, return success
+-    if (enable == is_sbs_mode) return true;
++    if (enable == is_sbs_mode) {
++        /* Also supersede an opposite queued/in-flight request. Never publish
++         * the requested value as the confirmed hardware state. */
++        int current = atomic_load(&confirmed_display_mode);
++        if (current < 0) return false;
++        atomic_store(&requested_display_mode, current);
++        return true;
++    }
+ 
+     if (enable) {
+         // requesting SBS mode, currently non-SBS, find the corresponding SBS mode and set it
+-        int non_sbs_mode_index = get_display_mode_index(glasses_controller->disp_mode, non_sbs_display_modes);
++        int non_sbs_mode_index = get_display_mode_index(atomic_load(&confirmed_display_mode), non_sbs_display_modes);
+         if (non_sbs_mode_index == -1) return false;
+ 
+-        glasses_controller->disp_mode = sbs_display_modes[non_sbs_mode_index];
++        atomic_store(&requested_display_mode, sbs_display_modes[non_sbs_mode_index]);
+     } else {
+         // requesting non-SBS mode, currently SBS, find the corresponding non-SBS mode and set it
+-        glasses_controller->disp_mode = non_sbs_display_modes[sbs_mode_index];
+-    }
+-
+-    sbs_mode_change_requested = true;
++        atomic_store(&requested_display_mode, non_sbs_display_modes[sbs_mode_index]);
++    }
++
+ 
+     return true;
+ };

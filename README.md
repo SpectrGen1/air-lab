@@ -1,6 +1,9 @@
 # Air Spatial Lab
 
-A native spatial desktop integration and a retained browser interaction study for the **original XREAL Air + labwc**. The mouse moves a point on a workspace-fixed cylinder while the camera rotates independently. Both currently use mono presentation; OpenXR and calibrated stereo are later milestones. The native integration routes real input and manages monitor power. The browser study only previews content.
+A native spatial desktop for the **original XREAL Air + labwc**. The mouse moves
+on a workspace-fixed cylinder while head tracking controls the view. Air Lab
+presents and controls live desktop windows, manages monitor power, and supports
+side-by-side stereo with adjustable software IPD.
 
 ## Native desktop integration
 
@@ -14,112 +17,107 @@ The latest compositor update uses smaller panels and a level horizon, and keeps
 a healthy preview open without a session timer. It requires a new login to take
 effect; actual feed loss or renderer failure still restores the desktop.
 
-- **Super+Alt+X**: preview/toggle; **Super+Alt+Return**: confirm first entry and sleep monitors.
-- **Super+Alt+Escape**: force desktop; **Super+Alt+R**: recenter; **Super+Alt+F**: summon pointer.
+Automatic spatial mode now uses the glasses’ internal OLED-on/off USB events
+as well as the connected Air display. Taking them off can restore the desktop
+even when Linux still reports the display enabled. Unknown OLED state waits for
+a hardware event; no reliable initial-state query has been identified. Every entry automatically
+routes input and sleeps the previously-on desktop monitors once tracking and a
+complete rendered scene are healthy. No confirmation shortcut is required.
+Unlocking automatically resumes spatial mode when the glasses remain connected.
+Super+Alt+X turns automatic mode off and immediately restores the desktop; it
+stays off until toggled back on. Failures retry after five seconds while enabled.
+`auto_start` sets the initial preference at login. This follows
+display connection events; physical put-on/take-off behavior still needs checking
+with the updated compositor.
+
+- **Super+Alt+X**: toggle automatic spatial mode; turning it off immediately exits. Mako reports the new state.
+- **Super+Alt+I**: show/hide the optional stereo depth check (not an IPD measurement).
+- **Super+Alt+, / .**: decrease/increase IPD by 0.5 mm; **Super+Alt+\** restores the saved baseline. Changes save automatically; a brief readout confirms the value applied by the renderer.
+- **Super+Alt+R** recenters. **Super+Alt+F** summons the pointer.
+- **Super+Alt+L** opens the window overview. Search by app, title, or workspace.
+  Use the arrows and Enter or click a row to bring that window in front of you.
+- **Super+Alt+C** centers the focused window. **Super+Alt+1 / 2 / 3** select
+  Focus, Side by Side, or Code + Reference. Drag a title toward a snap position
+  and release when its preview appears.
+- **Super+Alt+S** saves the current spatial layout. **Super+Alt+4** recalls it.
+  Saved placements, pins, and spatial resize dimensions are available on future logins.
+- **Super+Alt+B** toggles the larger reading profile. It saves automatically.
+  **Super+Alt+D** brings the Waybar dock into view for eight seconds.
+- **Super+Alt+G** toggles Game Focus for the focused app. Native Wayland apps can
+  use pointer lock and relative motion in spatial mode.
+- The focused window has a brighter frame and controls for Center, Pin, and
+  Minimize. Pin protects the window's placement when applying a preset.
+  Drag-and-drop between visible Wayland windows uses the normal seat.
 - **Super+Alt+Arrows**: move the focused panel; ordinary Alt+Tab/workspace switching remains available.
+- **Super+Alt+mouse wheel:** temporary 1–3× view zoom; scroll up to magnify, down to reduce. Releasing either modifier snaps back to 1×.
 - **Super+Alt+Minus / Equal:** slower/faster pointer; **Super+Alt+0:** reset speed.
 - **Spatial title bar:** left-drag to move around the cylinder; scroll while
-  holding it to move closer/farther. Drag the outer edges/corners to resize in 3D.
-  Panels always face the viewer origin; desktop window sizes stay intact.
+  holding it to move closer/farther. Drag a floating window's outer edge to
+  resize one dimension or a corner to resize proportionally. Exiting spatial
+  mode restores pre-entry desktop rectangles and moves windows off the glasses
+  when a regular monitor is available.
+  Panels always face the viewer origin.
+
+Spatial mode also presents your Waybar modules as three floating rows: launcher/
+taskbar, clock/status and system controls. The dock follows horizontal head turns,
+centred two feet forward and one foot down; look down to use it. Buttons,
+scrolling, popup menus and the wofi launcher use the real desktop input path.
+Your normal desktop bar/configuration stay intact. This native update needs
+the matching compositor/presenter and a new login; physical usability still needs
+checking in the glasses.
+
+Rendering uses supersampling, multisampled edges, mipmapped anisotropic filtering
+and higher-resolution title text. Status messages stay in logs; no persistent HUD
+banner covers the glasses view. Optimized builds, packed capture rows and partial
+texture updates target the display’s 60 Hz refresh without reducing AA quality.
+Head-following widgets update with rendered frames. Offscreen windows use fewer
+capture updates and the presenter samples head orientation again after texture
+uploads. Frame-gap and pose-age percentiles are logged without a HUD.
+
+Head orientation uses adaptive smoothing to reduce tiny tremors while following
+larger turns more quickly. Recenter resets smoothing immediately; tracking-loss
+checks still use the actual incoming sample times. Initial strength needs a
+physical comfort check after the next login.
+
+Automatic spatial mode follows the glasses' selected display mode: normal 2D
+uses mono; select 3D with the glasses' button for stereo at 1920x1080 per eye.
+The session does not change hardware modes on entry, exit or lock. Software mode
+switches produced black lenses on this setup despite valid rendered frames;
+manual 3D plus spatial rendering was confirmed visible. IPD defaults to 64 mm when no profile exists, and saves when adjusted.
+A measured profile supports separate left/right PD, with Reset returning to
+its saved far-view baseline. Protocol v8 requires a matching compositor/presenter
+and one fresh login; later saved profile changes load automatically. This is software eye spacing; optics and comfort still need
+calibration. `stereo: false` disables stereo rendering; select 2D on the glasses
+when using that setting.
+
+Outside spatial mode the glasses show a normal extended desktop. Waybar's
+Single layout includes LG plus connected glasses; Dual includes Dell, LG and
+connected glasses. The glasses sit immediately to the right of the desktop
+monitors, and unplugging them preserves the selected desktop monitor count.
 
 Read [NATIVE.md](docs/NATIVE.md) for the build, tests, stock-session fallback,
-physical acceptance checks and remaining feature gates. The native path uses
-EGL/SHM and real seat routing; the browser study below remains a separate
-read-only experiment. Physical Air sleep/unplug acceptance still needs the new
-login before this can be called a validated daily desktop.
+physical acceptance checks and remaining feature gates. See
+[SETUP.md](docs/SETUP.md) for tracker dependencies and hardware checks.
 
-## Local setup on spectre
+## Reviewing an unexpected exit
 
-Verified 2026-11-07: USB sensor communication, extended 1080p/60 display,
-real labwc window capture, and head tracking in the glasses. The user confirmed
-that the view stays steady after fixing a startup timestamp issue and allowing
-full stationary calibration. The tracker is built locally; no service
-installation is needed for this preview.
+Air Lab keeps a per-login event log at
+`~/.local/state/air-lab/events/latest.jsonl` (or under `$XDG_STATE_HOME`).
+It records why spatial mode exited, whether desktop recovery finished, and the
+exit code or signal of the compositor, presenter, and session-owned tracker.
+The session-start entry points to the detailed labwc and tracker logs. See
+[diagnostics](docs/NATIVE.md#persistent-exit-diagnostics) for review commands.
 
-```sh
-cd /home/work/projects/air-lab
-python3 scripts/run-lab.py                  # simulator + browser
-python3 scripts/run-lab.py --pose           # local Air tracker + preview + browser
-```
-
-Use one command at a time. The browser opens immediately; wait for live tracking before recentering. Move the browser to the Air, select **Glasses test · 40°**,
-click **Fullscreen**, face forward and press **R**. **Esc** releases the mouse;
-**Ctrl+C** in the launching terminal stops the preview and its tracker.
-`--no-browser` prints the private URL without opening it. Add `--window ID`
-up to three times for read-only previews.
-
-For a fresh checkout, first run `sh scripts/build-tracker.sh` to build the pinned
-upstream tracker. See [SETUP.md](docs/SETUP.md) for dependencies, diagnostics and
-recovery, and [STATUS.md](docs/STATUS.md) for validation and remaining design gates.
-`DESIGN.md` remains the native-integration contract; it is not implemented by
-this preview. Local builds, logs, captures and the original archive live under
-the ignored `.local/` directory.
-
-The generic XRLinuxDriver commands below apply to an independently installed
-driver. The local launcher supplies isolated settings automatically; do not run
-those commands or a second tracker alongside it.
-
-## 1 · Try the interaction without a headset
-
-From the extracted directory:
-
-```sh
-python3 bridge.py
-```
-
-Open the private loopback address printed in the terminal in a desktop browser. No Python packages required. `index.html` can also be opened directly in browsers that permit local scripts; the bridge is required for hardware and capture. `Esc` releases the mouse; `Ctrl+C` stops the bridge.
-
-Click the stage once to capture relative mouse input. Move over a line in the center panel and click again to leave a marker. Without moving the mouse, turn the simulated head with the arrow keys. **Ray** and **Marked** should stay on the same panel coordinate. Turn back; the cursor and marker coincide. `I/J/K/L` move the pointer without capturing the mouse, `Space` marks the current target, `Q/E` roll the simulated head. `F` explicitly summons the pointer to the current view; `R` recenters the view without moving the pointer in the workspace. New clicks outside the viewport are ignored. Coordinates in the readout are on the demo's 960×540 panel, not source-image or Wayland surface pixels.
-
-## 2 · Use an original Air as the camera
-
-Connect the glasses to a port/adapter supporting both video and USB data. Start in **ordinary 2D display mode, extended, not mirrored**. Leave the physical monitors on. Use an existing working XRLinuxDriver installation that offers `--opentrack-app`. A separate OpenTrack application is not needed: this bridge is the UDP receiver. Do not concurrently run a second IMU reader or a head-to-mouse service. If the driver is new to this system, follow the driver's upstream installation/permissions documentation, and verify your version's CLI rather than installing blind.
-
-These commands change the driver's stored output configuration. Record the previous mode, destination, and enabled state so you can restore them afterward. Configure the destination before selecting the output mode. If the installed driver is disabled, enable it separately using `xr_driver_cli -e`.
-
-```sh
-xr_driver_cli --opentrack-app-ip 127.0.0.1
-xr_driver_cli --opentrack-app-port 4243
-xr_driver_cli --opentrack-app
-python3 bridge.py --pose
-```
-
-Open the new private address, put the browser on the **Air output**, choose *Glasses test · 40°* and fullscreen the stage. The advertised 46° hardware FOV is not the horizontal FOV setting used by this demo. The 40° horizontal starting point assumes fullscreen 16:9, not a measured optical calibration. Wait for `UDP HEAD`, look forward, then press `R`. Check all three axes: turning right should move a fixed window left; looking up should move it down; tilting right should rotate the scene the opposite way. Axis inversions are available in the calibration section outside fullscreen. A stale feed freezes the view and displays `POSE STALE`. This preview has no prediction or reprojection; do not use its latency to judge the eventual native renderer.
-
-After testing, stop the bridge and restore the earlier driver mode. For example, `xr_driver_cli -d` disables the driver **only if disabled was the previous state**; use your former output mode instead when you previously used another feature. The bridge itself does not change driver configuration.
-
-## 3 · Substitute actual labwc windows for the mock panels
-
-Run from a terminal **inside the labwc session**. No sudo. `labwc --version` checks the compositor; the authoritative capture test is on the active Wayland socket, not just the installed version string.
-
-```sh
-labwc --version
-wlr-randr                               # read-only: compare output connectors and modes
-wayland-info | grep -E 'ext_(foreign_toplevel_(list|image_capture_source_manager)|image_copy_capture_manager)_v1|zwlr_output_power_manager_v1'
-lswt -c ti                             # title and foreign-toplevel identifier
-grim -h                                # verify this build has -T
-```
-
-Choose the identifier for an open editor. Test a still first (example writes a screenshot to the current directory; delete after use). Then pass the ID as one argument to the bridge. Start a fresh bridge, not a second receiver on the same UDP port.
-
-```sh
-id='REPLACE_WITH_THE_EDITOR_IDENTIFIER'
-mkdir -p .local
-grim -T "$id" .local/editor-test.png
-python3 bridge.py --pose --window "$id"
-```
-
-Repeat `--window` up to three times: center, left, right. Omit `--pose` to use actual previews with simulated head motion. The bridge requests a PNG roughly once per 1.25 s *plus capture time* for each selected window while the tab is visible. It is a diagnostic, not a streaming architecture. It makes no claim that a hidden/minimized surface will keep producing frames. A rejected capture, missing tool, stale ID, or timeout shows a capture warning. Do not select the presentation browser itself. Each snapshot is fit to the panel with its aspect preserved. All paint, clicking and marks inside the browser are local to the demo.
-
-The HTTP and UDP listeners bind to `127.0.0.1` only; HTTP uses a random capability path, Host checks, and disables caching. The bridge does not expose a directory or accept new capture IDs over HTTP. Do not share your URL or choose sensitive windows. Close the browser tab/stop the bridge after use. It does not implement the production session-lock lifecycle; do not use this preview as a privacy/security control.
-
-## Tests and limits
+## Tests
 
 ```sh
 python3 -m unittest -v
+python3 scripts/check-native-focused.py
 ```
 
-The bridge tests use synthetic UDP and a stub `grim`; launcher tests check private transport and tracker ownership. Native compositor tests and physical acceptance requirements are documented in [NATIVE.md](docs/NATIVE.md). Synthetic results do not establish physical hardware acceptance or completion of every `DESIGN.md` gate.
+The focused runner checks the built tracker and native binaries. It also
+supports an isolated headless workspace check. See [NATIVE.md](docs/NATIVE.md)
+for build prerequisites and physical acceptance.
 
 ### Upstream references
 

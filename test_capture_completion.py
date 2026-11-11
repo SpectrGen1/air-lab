@@ -60,3 +60,34 @@ int main(void){
             file.write_text(prefix + function(source, 'capture_ready') + function(source, 'capture_failed') + suffix)
             subprocess.run(['cc', '-std=c17', str(file), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, capture_output=True)
+
+
+class TestDeferredCapture(unittest.TestCase):
+    def test_scene_transition_retries_without_waiting_for_another_dirty_frame(self):
+        source = (ROOT / 'native/presenter/presenter.c').read_text()
+        prefix = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+struct app { uint64_t perf_upload_ns; };
+struct capture { struct app *app; bool wanted,dirty; unsigned texture,allocated_width,allocated_height,stride,format; void *map; };
+static uint64_t now_ns(void){return 1;}
+static int attempts,uploads;
+static void start_capture(struct capture *c){(void)c;}
+static void capture_upload(struct capture *c){(void)c;uploads++;}
+static void request_capture(struct capture *c){if(c->wanted&&!c->dirty)attempts++;}
+'''
+        suffix = r'''
+int main(void){
+ struct app a={0};
+ struct capture c={.app=&a,.wanted=false,.dirty=false};
+ prepare_capture(&c);assert(c.wanted&&attempts==1&&uploads==0);
+ c.dirty=true;prepare_capture(&c);assert(!c.dirty&&attempts==2&&uploads==1);
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            file=Path(directory)/'retry.c'
+            binary=Path(directory)/'retry'
+            file.write_text(prefix+function(source,'prepare_capture')+suffix)
+            subprocess.run(['cc','-std=c17',str(file),'-o',str(binary)],check=True)
+            subprocess.run([str(binary)],check=True)
